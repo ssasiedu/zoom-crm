@@ -1,0 +1,35 @@
+# Minimal Supabase CLI config. Run `supabase init` if you need the full file.
+project_id = "dm-crm"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+
+[db]
+port = 54322
+major_version = 15
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[realtime]
+enabled = true
+
+[storage]
+enabled = true
+file_size_limit = "10MiB"
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173/reset-password"]
+enable_signup = false
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false
+
+[functions.invite-user]
+verify_jwt = true
