@@ -9,6 +9,9 @@ import type {
   SlaAgingReport,
   StatusByRegionRow,
   TrendPoint,
+  TurnaroundGroupRow,
+  TurnaroundReport,
+  TurnaroundTotals,
 } from '@/types';
 import { exclusiveEndISO, startOfDayISO } from '@/utils/dateRange';
 import { toNumber } from '@/utils/format';
@@ -38,6 +41,18 @@ const num = <T extends object>(row: T, keys: (keyof T)[]): T => {
   });
   return out;
 };
+
+const groupRow = (r: TurnaroundGroupRow): TurnaroundGroupRow => ({
+  label: r.label,
+  resolved: toNumber(r.resolved),
+  avg_resolution_minutes: r.avg_resolution_minutes === null ? null : toNumber(r.avg_resolution_minutes),
+  median_resolution_minutes:
+    r.median_resolution_minutes === null || r.median_resolution_minutes === undefined
+      ? null
+      : toNumber(r.median_resolution_minutes),
+  avg_response_minutes: r.avg_response_minutes === null ? null : toNumber(r.avg_response_minutes),
+  within_sla: r.within_sla === undefined ? undefined : toNumber(r.within_sla),
+});
 
 export const reportsService = {
   async kpis(f: ReportFilters): Promise<Kpis> {
@@ -97,6 +112,49 @@ export const reportsService = {
         Object.entries(r.by_contact_type ?? {}).map(([k, v]) => [k, toNumber(v)]),
       ),
     }));
+  },
+
+  /** Turnaround (raised → resolved) and waiting time (raised → first worked on) */
+  async turnaround(f: ReportFilters): Promise<TurnaroundReport> {
+    const d = await rpc<TurnaroundReport>('report_turnaround', params(f));
+    const minutes = (v: unknown) => (v === null || v === undefined ? null : toNumber(v));
+    const t = (d?.totals ?? {}) as Partial<TurnaroundTotals>;
+    return {
+      totals: {
+        tickets: toNumber(t.tickets),
+        resolved: toNumber(t.resolved),
+        avg_resolution_minutes: minutes(t.avg_resolution_minutes),
+        median_resolution_minutes: minutes(t.median_resolution_minutes),
+        p90_resolution_minutes: minutes(t.p90_resolution_minutes),
+        fastest_minutes: minutes(t.fastest_minutes),
+        slowest_minutes: minutes(t.slowest_minutes),
+        avg_response_minutes: minutes(t.avg_response_minutes),
+        median_response_minutes: minutes(t.median_response_minutes),
+        total_minutes: toNumber(t.total_minutes),
+        within_sla: toNumber(t.within_sla),
+      },
+      buckets: (d?.buckets ?? []).map((b) => ({ label: b.label, count: toNumber(b.count) })),
+      by_officer: (d?.by_officer ?? []).map((r) => ({
+        ...r,
+        resolved: toNumber(r.resolved),
+        avg_resolution_minutes: minutes(r.avg_resolution_minutes),
+        median_resolution_minutes: minutes(r.median_resolution_minutes),
+        avg_response_minutes: minutes(r.avg_response_minutes),
+        fastest_minutes: minutes(r.fastest_minutes),
+        slowest_minutes: minutes(r.slowest_minutes),
+        total_minutes: toNumber(r.total_minutes),
+        within_sla: toNumber(r.within_sla),
+      })),
+      by_issue_type: (d?.by_issue_type ?? []).map(groupRow),
+      by_region: (d?.by_region ?? []).map(groupRow),
+      by_contact_type: (d?.by_contact_type ?? []).map(groupRow),
+      trend: (d?.trend ?? []).map((r) => ({
+        bucket: r.bucket,
+        resolved: toNumber(r.resolved),
+        avg_resolution_minutes: minutes(r.avg_resolution_minutes),
+        avg_response_minutes: minutes(r.avg_response_minutes),
+      })),
+    };
   },
 
   async slaAging(f: ReportFilters): Promise<SlaAgingReport> {

@@ -1,9 +1,9 @@
 {
-  "name": "dm-crm",
+  "name": "zoomlion-crm",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "DM CRM - ticket and issue management for customer service and Debt Management teams across Ghana's 16 regions",
+  "description": "Zoomlion CRM - ticket, issue and debt management for customer service teams across Ghana's 16 regions",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

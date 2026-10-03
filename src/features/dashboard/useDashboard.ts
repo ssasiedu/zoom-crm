@@ -33,6 +33,7 @@ export function useDashboardData(filters: ReportFilters) {
     communities: breakdown('community', 10),
     regions: useQuery({ queryKey: key('regions'), queryFn: () => reportsService.statusByRegion(filters), enabled }),
     officers: useQuery({ queryKey: key('officers'), queryFn: () => reportsService.officerPerformance(filters), enabled }),
+    turnaround: useQuery({ queryKey: key('turnaround'), queryFn: () => reportsService.turnaround(filters), enabled }),
     activity: useQuery({ queryKey: [...qk.dashboard, 'activity'], queryFn: () => activityService.recent(10), enabled }),
   };
 }

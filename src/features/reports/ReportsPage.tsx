@@ -1,7 +1,21 @@
 import { useState } from 'react';
-import { BarChart3, CalendarRange, ChevronDown, Clock, Download, FileSpreadsheet, FileText, MapPin, Tags, Users, Wallet } from 'lucide-react';
+import {
+  BarChart3,
+  CalendarRange,
+  ChevronDown,
+  Clock,
+  Download,
+  FileSpreadsheet,
+  FileText,
+  MapPin,
+  Tags,
+  Timer,
+  Users,
+  Wallet,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Button, Menu, PageHeader } from '@/components/ui';
+import { useBranding } from '@/hooks/useSettings';
 import { errorMessage } from '@/services/errors';
 import { cn } from '@/utils/cn';
 import { rangeLabel } from '@/utils/dateRange';
@@ -18,12 +32,14 @@ const ICONS: Record<string, typeof BarChart3> = {
   'payments-region': Wallet,
   'officer-performance': Users,
   'sla-aging': Clock,
+  turnaround: Timer,
   monthly: CalendarRange,
 };
 
 const TABS = [...REPORTS.map((r) => ({ key: r.key, title: r.title, description: r.description })), { key: 'monthly', title: 'Monthly report', description: 'Printable one-month summary (PDF)' }];
 
 export default function ReportsPage() {
+  const branding = useBranding();
   const rf = useReportFilters('month');
   const active = rf.params.get('report') ?? TABS[0].key;
   const report = REPORTS.find((r) => r.key === active);
@@ -35,7 +51,7 @@ export default function ReportsPage() {
     try {
       const sheets = await report.load(rf.filters);
       const subtitle = [rangeLabel(rf.range), rf.filters.region, rf.filters.issueType, rf.filters.contactType].filter(Boolean).join(' · ');
-      const opts = { filename: report.key, title: `DM CRM — ${report.title}`, subtitle, sheets };
+      const opts = { filename: report.key, title: `${branding.app_name} — ${report.title}`, subtitle, sheets };
       if (kind === 'xlsx') exportToExcel(opts);
       else exportToPdf({ ...opts, sheets: toPdfSheets(sheets) });
     } catch (err) {
@@ -69,7 +85,7 @@ export default function ReportsPage() {
         }
       />
 
-      <nav aria-label="Reports" className="no-print mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+      <nav aria-label="Reports" className="no-print mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
         {TABS.map((t) => {
           const Icon = ICONS[t.key] ?? BarChart3;
           const selected = t.key === active;

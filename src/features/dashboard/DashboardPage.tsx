@@ -23,10 +23,14 @@ import {
   FolderOpen,
   Inbox,
   Lock,
+  HandCoins,
   Percent,
+  PhoneCall,
   PlayCircle,
   RefreshCw,
+  Timer,
   UserX,
+  Wallet,
 } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { ChartCard, ChartTooltip, useChartTheme } from '@/components/charts/ChartKit';
@@ -37,7 +41,9 @@ import { qk } from '@/lib/queryClient';
 import { errorMessage } from '@/services/errors';
 import type { TicketStatus } from '@/types';
 import { rangeLabel } from '@/utils/dateRange';
-import { formatGHS, formatHours, formatNumber, formatPercent, formatRelative } from '@/utils/format';
+import { formatGHS, formatHours, formatMinutes, formatNumber, formatPercent, formatRelative } from '@/utils/format';
+import { useDebtorSummary } from '@/hooks/useDebtors';
+import { Link } from 'react-router';
 import { describeActivity } from '@/features/tickets/ActivityTimeline';
 import { ticketsUrl } from '@/features/tickets/ticketFilters';
 import { ReportFiltersBar } from '@/features/reports/ReportFiltersBar';
@@ -52,10 +58,40 @@ function clickDrill(e: unknown, key: string, run: (value: string) => void) {
   if (typeof v === 'string' && v) run(v);
 }
 
+/** This month's debt recovery, for supervisors and admins */
+function CollectionsSnapshot() {
+  const summary = useDebtorSummary({});
+  const s = summary.data;
+  if (!summary.isLoading && (!s || s.customers === 0)) return null;
+  return (
+    <section aria-label="Debt recovery" className="mb-5">
+      <div className="mb-2 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-slate-500 uppercase">Debt recovery (all months)</h2>
+        <Link to="/debtors" className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-400">
+          Open debtor lists →
+        </Link>
+      </div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <StatCard label="Accounts" value={formatNumber(s?.customers)} icon={<PhoneCall />} tone="gray" loading={summary.isLoading} />
+        <StatCard label="Outstanding" value={formatGHS(s?.outstanding ?? 0)} icon={<Wallet />} tone="violet" loading={summary.isLoading} />
+        <StatCard
+          label="Collected"
+          value={formatGHS(s?.collected ?? 0)}
+          icon={<HandCoins />}
+          tone="green"
+          hint={s ? `${formatPercent(s.collection_rate)} of outstanding` : undefined}
+          loading={summary.isLoading}
+        />
+        <StatCard label="Contacted" value={formatPercent(s?.contact_rate ?? 0)} icon={<Percent />} tone="blue" loading={summary.isLoading} />
+      </div>
+    </section>
+  );
+}
+
 export default function DashboardPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { profile, role } = useAuth();
+  const { profile, role, can } = useAuth();
   const rf = useReportFilters('month');
   const d = useDashboardData(rf.filters);
   const theme = useChartTheme();
@@ -105,7 +141,25 @@ export default function DashboardPage() {
         <StatCard label="Resolution rate" value={formatPercent(k?.resolution_rate)} icon={<Percent />} tone="brand" loading={d.kpis.isLoading} hint={`SLA met on ${formatPercent(k?.sla_compliance)} of resolved`} />
         <StatCard label="Avg. resolution time" value={formatHours(k?.avg_resolution_hours)} icon={<Clock />} tone="brand" loading={d.kpis.isLoading} hint="Opened → completed" />
         <StatCard label="Total payments" value={formatGHS(k?.total_payments)} icon={<Banknote />} tone="gold" loading={d.kpis.isLoading} />
+        <StatCard
+          label="Avg. turnaround"
+          value={formatMinutes(d.turnaround.data?.totals.avg_resolution_minutes)}
+          icon={<Timer />}
+          tone="brand"
+          loading={d.turnaround.isLoading}
+          hint="Raised → completed"
+        />
+        <StatCard
+          label="Avg. waiting time"
+          value={formatMinutes(d.turnaround.data?.totals.avg_response_minutes)}
+          icon={<Clock />}
+          tone="amber"
+          loading={d.turnaround.isLoading}
+          hint="Raised → first worked on"
+        />
       </section>
+
+      {can('debtors:view') && <CollectionsSnapshot />}
 
       <div className="mb-5 grid gap-5 xl:grid-cols-3">
         <ChartCard

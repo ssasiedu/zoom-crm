@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
-import { MessageCircle, Pencil, Phone, Printer, Trash2, UserCheck } from 'lucide-react';
+import { MessageCircle, MessageSquare, Pencil, Phone, Printer, Trash2, UserCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { useInvalidateTickets } from '@/hooks/useTickets';
@@ -19,8 +19,13 @@ import {
   StatusBadge,
   Tabs,
 } from '@/components/ui';
-import { formatDate, formatDateTime, formatGHS } from '@/utils/format';
+import { formatDate, formatDateTime, formatGHS, formatMinutes } from '@/utils/format';
 import { formatPhone, telLink, whatsappLink } from '@/utils/phone';
+import { useBranding } from '@/hooks/useSettings';
+import { ticketSmsVars, PLACEHOLDERS } from '@/services/sms';
+import { SendSmsDialog } from '@/features/sms/SendSmsDialog';
+import { SmsPanel } from '@/features/sms/SmsPanel';
+import { AssistantPanel } from '@/features/assistant/AssistantPanel';
 import { ActivityTimeline } from './ActivityTimeline';
 import { AssignDialog } from './AssignDialog';
 import { AttachmentsPanel } from './AttachmentsPanel';
@@ -40,9 +45,12 @@ function Item({ label, children, wide }: { label: string; children: ReactNode; w
 }
 
 export function ContactActions({ ticket, size = 'sm' }: { ticket: TicketRow; size?: 'xs' | 'sm' }) {
+  const { can } = useAuth();
+  const branding = useBranding();
+  const [smsOpen, setSmsOpen] = useState(false);
   const msg = `Hello ${ticket.client_name}, this is regarding your ticket ${ticket.ticket_number}.`;
   return (
-    <div className="no-print flex gap-1.5">
+    <div className="no-print flex flex-wrap gap-1.5">
       <a
         href={telLink(ticket.contact_number)}
         onClick={(e) => e.stopPropagation()}
@@ -61,6 +69,32 @@ export function ContactActions({ ticket, size = 'sm' }: { ticket: TicketRow; siz
       >
         <MessageCircle className="size-4" /> {size === 'sm' && 'WhatsApp'}
       </a>
+      {can('sms:send') && (
+        <>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSmsOpen(true);
+            }}
+            className="inline-flex h-8 items-center gap-1.5 rounded-control border border-slate-300 px-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+            aria-label={`Send an SMS to ${ticket.client_name}`}
+          >
+            <MessageSquare className="size-4" /> {size === 'sm' && 'SMS'}
+          </button>
+          <span onClick={(e) => e.stopPropagation()} role="presentation">
+            <SendSmsDialog
+              open={smsOpen}
+              onClose={() => setSmsOpen(false)}
+              recipient={ticket.contact_number}
+              recipientName={ticket.client_name}
+              ticketId={ticket.id}
+              vars={ticketSmsVars(ticket, branding.app_name)}
+              placeholders={[...PLACEHOLDERS]}
+            />
+          </span>
+        </>
+      )}
     </div>
   );
 }
@@ -69,7 +103,7 @@ export function TicketDetail({ ticket, variant = 'page' }: { ticket: TicketRow; 
   const { can, role, user } = useAuth();
   const navigate = useNavigate();
   const invalidate = useInvalidateTickets();
-  const [tab, setTab] = useState<'activity' | 'comments' | 'files'>('activity');
+  const [tab, setTab] = useState<'activity' | 'comments' | 'files' | 'sms' | 'assist'>('activity');
   const [assignOpen, setAssignOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -145,7 +179,7 @@ export function TicketDetail({ ticket, variant = 'page' }: { ticket: TicketRow; 
               <Item label={L.due_date}>{formatDate(ticket.due_date)}</Item>
               <Item label={L.client_name}>{ticket.client_name}</Item>
               <Item label={L.client_id}>
-                <span className="font-mono">{ticket.client_id}</span>
+                {ticket.client_id ? <span className="font-mono">{ticket.client_id}</span> : '—'}
               </Item>
               <Item label={L.contact_number}>{formatPhone(ticket.contact_number)}</Item>
               <Item label={L.contact_type}>{ticket.contact_type}</Item>
@@ -178,6 +212,20 @@ export function TicketDetail({ ticket, variant = 'page' }: { ticket: TicketRow; 
               )}
               <Item label={L.status}>{ticket.status}</Item>
               <Item label={L.completion_date}>{formatDateTime(ticket.completion_date)}</Item>
+              <Item label={L.response_minutes}>
+                {ticket.response_minutes === null ? (
+                  <span className="text-slate-400">not started</span>
+                ) : (
+                  formatMinutes(ticket.response_minutes)
+                )}
+              </Item>
+              <Item label={L.resolution_minutes}>
+                {ticket.resolution_minutes === null ? (
+                  <span className="text-slate-400">still open</span>
+                ) : (
+                  <span className="font-semibold">{formatMinutes(ticket.resolution_minutes)}</span>
+                )}
+              </Item>
               {ticket.reason_for_open_status && <Item label={L.reason_for_open_status}>{ticket.reason_for_open_status}</Item>}
               {ticket.reopen_reason && <Item label="Last reopen reason">{ticket.reopen_reason}</Item>}
               <Item label={L.remarks} wide>
@@ -200,14 +248,18 @@ export function TicketDetail({ ticket, variant = 'page' }: { ticket: TicketRow; 
             value={tab}
             onChange={setTab}
             items={[
+              { value: 'assist', label: 'Assistant' },
               { value: 'activity', label: 'History' },
               { value: 'comments', label: 'Comments' },
-              { value: 'files', label: 'Attachments' },
+              { value: 'sms', label: 'SMS' },
+              { value: 'files', label: 'Files' },
             ]}
           />
           <div className="p-4">
+            {tab === 'assist' && <AssistantPanel ticket={ticket} />}
             {tab === 'activity' && <ActivityTimeline ticketId={ticket.id} />}
             {tab === 'comments' && <CommentsPanel ticketId={ticket.id} />}
+            {tab === 'sms' && <SmsPanel ticket={ticket} />}
             {tab === 'files' && <AttachmentsPanel ticketId={ticket.id} />}
           </div>
         </Card>

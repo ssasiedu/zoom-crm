@@ -17,7 +17,21 @@ export const LOOKUP_LABELS: Record<LookupTable, { title: string; description: st
   payment_sources: { title: 'PAYMENT SOURCE', description: 'New or existing business' },
   payment_types: { title: 'PAYMENT TYPE', description: 'Products or payment categories' },
   payment_statuses: { title: 'PAYMENT STATUS', description: 'Where a payment stands' },
+  customer_types: { title: 'CUSTOMER TYPE', description: 'Used by the monthly debtor list' },
+  providers: { title: 'PROVIDER', description: 'Service providers on the debtor list' },
+  debtor_feedback: { title: 'FEEDBACK', description: 'Outcomes officers can record on a debtor call' },
 };
+
+const TICKET_LOOKUPS: LookupTable[] = [
+  'contact_types',
+  'issue_types',
+  'regions',
+  'payment_sources',
+  'payment_types',
+  'payment_statuses',
+];
+
+const DEBTOR_LOOKUPS: LookupTable[] = ['customer_types', 'providers', 'debtor_feedback'];
 
 function LookupList({ table }: { table: LookupTable }) {
   const queryClient = useQueryClient();
@@ -170,10 +184,23 @@ function LookupList({ table }: { table: LookupTable }) {
 
 export function LookupsAdmin() {
   return (
-    <div className="grid gap-5 lg:grid-cols-2 2xl:grid-cols-3">
-      {(Object.keys(LOOKUP_LABELS) as LookupTable[]).map((t) => (
-        <LookupList key={t} table={t} />
-      ))}
+    <div className="space-y-6">
+      <section>
+        <h2 className="mb-2 text-sm font-semibold text-slate-500 uppercase">Tickets</h2>
+        <div className="grid gap-5 lg:grid-cols-2 2xl:grid-cols-3">
+          {TICKET_LOOKUPS.map((t) => (
+            <LookupList key={t} table={t} />
+          ))}
+        </div>
+      </section>
+      <section>
+        <h2 className="mb-2 text-sm font-semibold text-slate-500 uppercase">Debt recovery</h2>
+        <div className="grid gap-5 lg:grid-cols-2 2xl:grid-cols-3">
+          {DEBTOR_LOOKUPS.map((t) => (
+            <LookupList key={t} table={t} />
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

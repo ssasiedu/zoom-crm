@@ -14,7 +14,7 @@ import { formatRelative } from '@/utils/format';
 import { TicketForm } from './TicketForm';
 import { buildTicketSchema, EMPTY_TICKET, formToInsert, type TicketFormValues } from './ticketSchema';
 
-const DRAFT_KEY = 'dm-crm:ticket-draft';
+const DRAFT_KEY = 'zoomlion-crm:ticket-draft';
 
 interface Draft {
   values: TicketFormValues;

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
 
 export type Theme = 'light' | 'dark' | 'system';
-const KEY = 'dm-crm:theme';
+const KEY = 'zoomlion-crm:theme';
 const listeners = new Set<() => void>();
 
 function read(): Theme {

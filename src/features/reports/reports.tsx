@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { format, parseISO } from 'date-fns';
 import { ChartCard, ChartTooltip, useChartTheme } from '@/components/charts/ChartKit';
-import { Card, CardHeader, EmptyState, ErrorState, TableSkeleton } from '@/components/ui';
+import { Card, CardHeader, EmptyState, ErrorState, StatCard, TableSkeleton } from '@/components/ui';
 import { useLookups } from '@/hooks/useLookups';
 import { CHART_PALETTE, STATUS_COLORS } from '@/lib/constants';
 import { qk } from '@/lib/queryClient';
@@ -18,7 +19,7 @@ import type {
   StatusByRegionRow,
 } from '@/types';
 import type { ExportSheet } from '@/utils/export';
-import { formatGHS, formatHours, formatNumber, formatPercent } from '@/utils/format';
+import { formatGHS, formatHours, formatMinutes, formatNumber, formatPercent } from '@/utils/format';
 import { ticketsUrl } from '@/features/tickets/ticketFilters';
 import { heat, ReportTable, sum, type ReportColumn } from './ReportTable';
 
@@ -541,6 +542,184 @@ async function loadSlaSheets(f: ReportFilters): Promise<ExportSheet[]> {
   ];
 }
 
+
+/* ------------------------------------------------------------------ */
+/* 6. Turnaround time                                                  */
+/* ------------------------------------------------------------------ */
+const TAT_BUCKET_COLORS = ['#10b981', '#22c55e', '#eab308', '#f97316', '#ef4444', '#991b1b'];
+
+function Turnaround({ filters, ticketParams }: ReportProps) {
+  const navigate = useNavigate();
+  const theme = useChartTheme();
+  const q = useReport('turnaround', filters, reportsService.turnaround);
+  const d = q.data;
+  const totals = d?.totals;
+
+  return (
+    <Frame loading={q.isLoading} error={q.error} retry={() => q.refetch()} empty={!totals || totals.resolved === 0}>
+      {d && totals && (
+        <>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+            <StatCard label="Resolved tickets" value={formatNumber(totals.resolved)} tone="gray" />
+            <StatCard
+              label="Average turnaround"
+              value={formatMinutes(totals.avg_resolution_minutes)}
+              tone="brand"
+              hint="Raised → completed"
+            />
+            <StatCard
+              label="Median turnaround"
+              value={formatMinutes(totals.median_resolution_minutes)}
+              tone="brand"
+              hint="Half are faster than this"
+            />
+            <StatCard
+              label="Average waiting time"
+              value={formatMinutes(totals.avg_response_minutes)}
+              tone="amber"
+              hint="Raised → first worked on"
+            />
+            <StatCard label="Within SLA" value={formatPercent(totals.within_sla)} tone="green" />
+          </div>
+
+          <div className="grid gap-5 lg:grid-cols-2">
+            <ChartCard title="How long tickets take" description="Resolved tickets by turnaround time" height={300}>
+              <ResponsiveContainer>
+                <BarChart data={d.buckets} margin={{ top: 5, right: 10, left: -15, bottom: 20 }}>
+                  <CartesianGrid stroke={theme.grid} vertical={false} />
+                  <XAxis dataKey="label" tick={theme.tick} interval={0} angle={-15} textAnchor="end" axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={theme.tick} axisLine={false} tickLine={false} />
+                  <Tooltip content={<ChartTooltip />} cursor={{ fill: theme.cursor }} />
+                  <Bar dataKey="count" name="Tickets" radius={[6, 6, 0, 0]}>
+                    {d.buckets.map((_, i) => (
+                      <Cell key={i} fill={TAT_BUCKET_COLORS[i] ?? theme.brand} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+
+            <ChartCard title="Month by month" description="Average turnaround and waiting time, in hours" height={300}>
+              <ResponsiveContainer>
+                <LineChart
+                  data={d.trend.map((t) => ({
+                    ...t,
+                    label: format(parseISO(t.bucket), 'MMM yy'),
+                    tat: t.avg_resolution_minutes === null ? null : Number((t.avg_resolution_minutes / 60).toFixed(1)),
+                    wait: t.avg_response_minutes === null ? null : Number((t.avg_response_minutes / 60).toFixed(1)),
+                  }))}
+                  margin={{ top: 5, right: 10, left: -15, bottom: 0 }}
+                >
+                  <CartesianGrid stroke={theme.grid} vertical={false} />
+                  <XAxis dataKey="label" tick={theme.tick} axisLine={false} tickLine={false} />
+                  <YAxis tick={theme.tick} axisLine={false} tickLine={false} unit="h" />
+                  <Tooltip content={<ChartTooltip valueFormatter={(v) => `${v} h`} />} />
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+                  <Line type="monotone" dataKey="tat" name="Turnaround" stroke={theme.brand} strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="wait" name="Waiting" stroke={theme.gold} strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          </div>
+
+          <Card>
+            <CardHeader title="By officer" description="Click a row to see that officer's tickets" />
+            <ReportTable
+              caption="Turnaround by officer"
+              rows={d.by_officer}
+              rowKey={(r) => r.officer_name}
+              onRowClick={(r) => {
+                const officer = r.officer_name;
+                navigate(ticketsUrl({ ...ticketParams, status: 'Resolved,Closed', q: officer }));
+              }}
+              columns={[
+                { key: 'o', header: 'Officer', render: (r) => <span className="font-medium">{r.officer_name}</span> },
+                { key: 'region', header: 'Region', render: (r) => r.region ?? '—' },
+                { key: 'resolved', header: 'Resolved', align: 'right', render: (r) => r.resolved },
+                { key: 'avg', header: 'Average', align: 'right', render: (r) => formatMinutes(r.avg_resolution_minutes) },
+                { key: 'median', header: 'Median', align: 'right', render: (r) => formatMinutes(r.median_resolution_minutes) },
+                { key: 'wait', header: 'Waiting', align: 'right', render: (r) => formatMinutes(r.avg_response_minutes) },
+                { key: 'fast', header: 'Fastest', align: 'right', render: (r) => formatMinutes(r.fastest_minutes) },
+                { key: 'slow', header: 'Slowest', align: 'right', render: (r) => formatMinutes(r.slowest_minutes) },
+                { key: 'sla', header: 'Within SLA', align: 'right', render: (r) => formatPercent(r.within_sla) },
+              ]}
+            />
+          </Card>
+
+          <div className="grid gap-5 xl:grid-cols-2">
+            {(
+              [
+                ['By issue type', d.by_issue_type],
+                ['By region', d.by_region],
+              ] as const
+            ).map(([title, rows]) => (
+              <Card key={title}>
+                <CardHeader title={title} />
+                <ReportTable
+                  caption={title}
+                  rows={[...rows]}
+                  rowKey={(r) => r.label}
+                  columns={[
+                    { key: 'l', header: 'Value', render: (r) => r.label },
+                    { key: 'n', header: 'Resolved', align: 'right', render: (r) => r.resolved },
+                    { key: 'avg', header: 'Average', align: 'right', render: (r) => formatMinutes(r.avg_resolution_minutes) },
+                    { key: 'wait', header: 'Waiting', align: 'right', render: (r) => formatMinutes(r.avg_response_minutes) },
+                  ]}
+                />
+              </Card>
+            ))}
+          </div>
+        </>
+      )}
+    </Frame>
+  );
+}
+
+async function loadTurnaroundSheets(f: ReportFilters): Promise<ExportSheet[]> {
+  const d = await reportsService.turnaround(f);
+  const hours = (m: number | null | undefined) => (m === null || m === undefined ? '' : Number((m / 60).toFixed(2)));
+  return [
+    {
+      name: 'Summary',
+      head: ['Metric', 'Value'],
+      rows: [
+        ['Tickets in range', d.totals.tickets],
+        ['Resolved', d.totals.resolved],
+        ['Average turnaround', formatMinutes(d.totals.avg_resolution_minutes)],
+        ['Median turnaround', formatMinutes(d.totals.median_resolution_minutes)],
+        ['90th percentile', formatMinutes(d.totals.p90_resolution_minutes)],
+        ['Fastest', formatMinutes(d.totals.fastest_minutes)],
+        ['Slowest', formatMinutes(d.totals.slowest_minutes)],
+        ['Average waiting time', formatMinutes(d.totals.avg_response_minutes)],
+        ['Within SLA', `${d.totals.within_sla}%`],
+      ],
+    },
+    {
+      name: 'By officer',
+      head: ['Officer', 'Region', 'Resolved', 'Average (hours)', 'Median (hours)', 'Waiting (hours)', 'Within SLA %'],
+      rows: d.by_officer.map((r) => [
+        r.officer_name,
+        r.region ?? '',
+        r.resolved,
+        hours(r.avg_resolution_minutes),
+        hours(r.median_resolution_minutes),
+        hours(r.avg_response_minutes),
+        r.within_sla,
+      ]),
+    },
+    {
+      name: 'By issue type',
+      head: ['Issue type', 'Resolved', 'Average (hours)', 'Waiting (hours)'],
+      rows: d.by_issue_type.map((r) => [r.label, r.resolved, hours(r.avg_resolution_minutes), hours(r.avg_response_minutes)]),
+    },
+    {
+      name: 'Distribution',
+      head: ['Turnaround', 'Tickets'],
+      rows: d.buckets.map((b) => [b.label, b.count]),
+    },
+  ];
+}
+
 export const REPORTS: ReportDefinition[] = [
   {
     key: 'status-region',
@@ -571,6 +750,13 @@ export const REPORTS: ReportDefinition[] = [
     Component: OfficerPerformance,
   },
   {
+    key: 'turnaround',
+    title: 'Turnaround time',
+    description: 'How many minutes it takes to resolve a ticket, and where the time goes',
+    load: loadTurnaroundSheets,
+    Component: Turnaround,
+  },
+  {
     key: 'sla-aging',
     title: 'SLA & overdue ageing',
     description: 'Overdue tickets bucketed 0–2, 3–7, 8–14 and 15+ days',
@@ -579,4 +765,4 @@ export const REPORTS: ReportDefinition[] = [
   },
 ];
 
-export { statusSheet, loadIssueSheets, loadPaymentSheets, loadOfficerSheets, loadSlaSheets };
+export { statusSheet, loadIssueSheets, loadPaymentSheets, loadOfficerSheets, loadSlaSheets, loadTurnaroundSheets };

@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import type { IssueTypeItem, LookupItem, Lookups, LookupTable } from '@/types';
+import type { DebtorFeedbackItem, IssueTypeItem, LookupItem, Lookups, LookupTable } from '@/types';
 import { unwrap } from './errors';
 
 const TABLES: LookupTable[] = [
@@ -9,6 +9,9 @@ const TABLES: LookupTable[] = [
   'payment_types',
   'payment_statuses',
   'regions',
+  'customer_types',
+  'providers',
+  'debtor_feedback',
 ];
 
 export const lookupsService = {
@@ -26,14 +29,15 @@ export const lookupsService = {
     return {
       ...(out as unknown as Lookups),
       issue_types: out.issue_types as IssueTypeItem[],
+      debtor_feedback: out.debtor_feedback as DebtorFeedbackItem[],
     };
   },
 
-  async create(table: LookupTable, values: Partial<IssueTypeItem> & { name: string }) {
+  async create(table: LookupTable, values: Partial<IssueTypeItem & DebtorFeedbackItem> & { name: string }) {
     return unwrap(await supabase.from(table).insert(values).select().single()) as LookupItem;
   },
 
-  async update(table: LookupTable, id: number, values: Partial<IssueTypeItem>) {
+  async update(table: LookupTable, id: number, values: Partial<IssueTypeItem & DebtorFeedbackItem>) {
     return unwrap(await supabase.from(table).update(values).eq('id', id).select().single()) as LookupItem;
   },
 
@@ -50,3 +54,13 @@ export const lookupsService = {
     );
   },
 };
+
+/** Add values seen in an upload that are not in a lookup table yet (managers only) */
+export async function ensureLookupValues(table: LookupTable, names: string[]): Promise<number> {
+  const unique = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
+  if (unique.length === 0) return 0;
+  const added = unwrap(
+    await supabase.rpc('ensure_lookup_values', { p_table: table, p_names: unique }),
+  ) as number | null;
+  return added ?? 0;
+}

@@ -3,7 +3,7 @@ import { FIELD_LABELS } from '@/lib/constants';
 import type { TicketRow } from '@/types';
 import { Avatar, DueBadge, PriorityBadge, StatusBadge } from '@/components/ui';
 import { cn } from '@/utils/cn';
-import { formatDate, formatDateTime, formatGHS } from '@/utils/format';
+import { formatDate, formatDateTime, formatGHS, formatMinutes } from '@/utils/format';
 import { formatPhone } from '@/utils/phone';
 import { getDueState } from '@/utils/tickets';
 
@@ -33,7 +33,14 @@ export const ticketColumns: ColumnDef<TicketRow, unknown>[] = [
   col('client_name', {
     cell: ({ row }) => <span className="block max-w-48 truncate font-medium text-slate-900 dark:text-white">{row.original.client_name}</span>,
   }),
-  col('client_id', { cell: ({ row }) => <span className="font-mono text-xs whitespace-nowrap">{row.original.client_id}</span> }),
+  col('client_id', {
+    cell: ({ row }) =>
+      row.original.client_id ? (
+        <span className="font-mono text-xs whitespace-nowrap">{row.original.client_id}</span>
+      ) : (
+        <span className="text-slate-400">—</span>
+      ),
+  }),
   col('contact_number', { cell: ({ row }) => <span className="whitespace-nowrap">{formatPhone(row.original.contact_number)}</span> }),
   col('contact_type', { cell: ({ row }) => <span className="whitespace-nowrap">{row.original.contact_type}</span> }),
   col('community'),
@@ -90,6 +97,24 @@ export const ticketColumns: ColumnDef<TicketRow, unknown>[] = [
     cell: ({ row }) => <span className="block max-w-48 truncate">{row.original.reason_for_open_status ?? '—'}</span>,
   }),
   col('priority', { cell: ({ row }) => <PriorityBadge priority={row.original.priority} /> }),
+  col('resolution_minutes', {
+    meta: { label: L.resolution_minutes, align: 'right' },
+    cell: ({ row }) =>
+      row.original.resolution_minutes === null ? (
+        <span className="text-slate-400">—</span>
+      ) : (
+        <span className="whitespace-nowrap">{formatMinutes(row.original.resolution_minutes)}</span>
+      ),
+  }),
+  col('response_minutes', {
+    meta: { label: L.response_minutes, align: 'right' },
+    cell: ({ row }) =>
+      row.original.response_minutes === null ? (
+        <span className="text-slate-400">—</span>
+      ) : (
+        <span className="whitespace-nowrap">{formatMinutes(row.original.response_minutes)}</span>
+      ),
+  }),
   col('updated_at', { cell: ({ row }) => <span className="whitespace-nowrap">{formatDateTime(row.original.updated_at)}</span> }),
 ];
 
@@ -103,4 +128,5 @@ export const DEFAULT_HIDDEN_COLUMNS: Record<string, boolean> = {
   reason_for_open_status: false,
   updated_at: false,
   contact_type: false,
+  response_minutes: false,
 };
