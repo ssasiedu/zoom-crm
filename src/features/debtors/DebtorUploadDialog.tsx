@@ -80,11 +80,23 @@ interface ParsedRow {
   warnings: string[];
 }
 
+/**
+ * Spreadsheets rarely match the stored casing ("Residential" vs
+ * "RESIDENTIAL"), but the database foreign keys are case-sensitive. Match
+ * loosely, then always write back the exact stored name.
+ */
+export type LookupIndex = Map<string, string>;
+
+function canonical(index: LookupIndex, value: string): string | null {
+  return index.get(value.trim().toUpperCase()) ?? null;
+}
+
 function parseRows(
   data: Record<string, unknown>[],
   periodId: string,
   officers: Officer[],
-  known: { customerTypes: Set<string>; providers: Set<string>; regions: Set<string> },
+  known: { customerTypes: LookupIndex; providers: LookupIndex; regions: LookupIndex },
+  addMissing: boolean,
 ): ParsedRow[] {
   const hmap = headerMap();
   const officerByName = new Map(officers.map((o) => [o.full_name.toLowerCase(), o]));
@@ -123,11 +135,32 @@ function parseRows(
       else errors.push(`OFFICER "${values.officer_name}" is not in the officer list`);
     }
 
-    if (values.customer_type && !known.customerTypes.has(values.customer_type.toUpperCase())) {
-      warnings.push(`new CUSTOMER TYPE "${values.customer_type}"`);
+    // Resolve each lookup to the exact value stored in the database.
+    // Unknown values are either created on import or dropped with a warning,
+    // never written through — the foreign key would reject the whole batch.
+    let customerType = canonical(known.customerTypes, values.customer_type);
+    if (values.customer_type && !customerType) {
+      if (addMissing) {
+        customerType = values.customer_type.trim();
+        warnings.push(`new CUSTOMER TYPE "${customerType}" will be added`);
+      } else {
+        warnings.push(`CUSTOMER TYPE "${values.customer_type}" is not in the list — left blank`);
+      }
     }
-    if (values.provider && !known.providers.has(values.provider.toUpperCase())) {
-      warnings.push(`new PROVIDER "${values.provider}"`);
+
+    let provider = canonical(known.providers, values.provider);
+    if (values.provider && !provider) {
+      if (addMissing) {
+        provider = values.provider.trim();
+        warnings.push(`new PROVIDER "${provider}" will be added`);
+      } else {
+        warnings.push(`PROVIDER "${values.provider}" is not in the list — left blank`);
+      }
+    }
+
+    const region = canonical(known.regions, values.region);
+    if (values.region && !region) {
+      warnings.push(`Region "${values.region}" is not one of Ghana's 16 regions — left blank`);
     }
 
     const line = index + 2;
@@ -142,10 +175,10 @@ function parseRows(
         period_id: periodId,
         customer_id: values.customer_id || null,
         customer_name: values.customer_name,
-        customer_type: values.customer_type || null,
-        provider: values.provider || null,
+        customer_type: customerType,
+        provider: provider,
         community: values.community || null,
-        region: values.region && known.regions.has(values.region.toUpperCase()) ? values.region : null,
+        region: region,
         contact_number: phone,
         outstanding_balance: Math.round(balance * 100) / 100,
         officer_id: officerId,
@@ -169,20 +202,30 @@ export function DebtorUploadDialog({ open, onClose, periodId }: { open: boolean;
   const [month, setMonth] = useState(() => format(startOfMonth(new Date()), 'yyyy-MM'));
   const [targetPeriod, setTargetPeriod] = useState(periodId ?? '');
   const [fileName, setFileName] = useState('');
-  const [rows, setRows] = useState<ParsedRow[]>([]);
+  const [raw, setRaw] = useState<Record<string, unknown>[] | null>(null);
   const [replace, setReplace] = useState(false);
   const [addMissing, setAddMissing] = useState(true);
   const [notify, setNotify] = useState(true);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
 
+  const index = (items: { name: string }[]): LookupIndex =>
+    new Map(items.map((x) => [x.name.trim().toUpperCase(), x.name]));
+
   const known = useMemo(
     () => ({
-      customerTypes: new Set(lookups.customer_types.map((x) => x.name.toUpperCase())),
-      providers: new Set(lookups.providers.map((x) => x.name.toUpperCase())),
-      regions: new Set(lookups.regions.map((x) => x.name.toUpperCase())),
+      customerTypes: index(lookups.customer_types),
+      providers: index(lookups.providers),
+      regions: index(lookups.regions),
     }),
     [lookups],
+  );
+
+  // Re-parsed whenever the lookups load or the "add new values" switch moves,
+  // so the preview always matches what will actually be written.
+  const rows = useMemo(
+    () => (raw ? parseRows(raw, targetPeriod, officers, known, addMissing) : []),
+    [raw, targetPeriod, officers, known, addMissing],
   );
 
   const valid = rows.filter((r) => r.row);
@@ -191,7 +234,7 @@ export function DebtorUploadDialog({ open, onClose, periodId }: { open: boolean;
   const unassigned = valid.filter((r) => !r.row?.officer_id).length;
 
   const reset = () => {
-    setRows([]);
+    setRaw(null);
     setFileName('');
     setProgress(0);
   };
@@ -221,7 +264,7 @@ export function DebtorUploadDialog({ open, onClose, periodId }: { open: boolean;
       if (data.length > 20000) throw new Error('Upload at most 20,000 rows at a time.');
       const period = await resolvePeriod();
       setTargetPeriod(period);
-      setRows(parseRows(data, period, officers, known));
+      setRaw(data);
       setFileName(file.name);
     } catch (err) {
       toast.error(errorMessage(err));
@@ -237,13 +280,23 @@ export function DebtorUploadDialog({ open, onClose, periodId }: { open: boolean;
       const period = targetPeriod || (await resolvePeriod());
 
       if (addMissing) {
-        const newTypes = valid
-          .map((r) => r.values.customer_type)
-          .filter((v) => v && !known.customerTypes.has(v.toUpperCase()));
-        const newProviders = valid.map((r) => r.values.provider).filter((v) => v && !known.providers.has(v.toUpperCase()));
+        // Exactly the values the rows will be written with, so the foreign
+        // keys resolve. Anything already known was canonicalised in parseRows.
+        const missing = (pick: (r: ParsedRow) => string | null | undefined, lookup: LookupIndex) => [
+          ...new Map(
+            valid
+              .map(pick)
+              .filter((v): v is string => Boolean(v) && !lookup.has(String(v).trim().toUpperCase()))
+              .map((v) => [v.trim().toUpperCase(), v.trim()]),
+          ).values(),
+        ];
+        const newTypes = missing((r) => r.row?.customer_type, known.customerTypes);
+        const newProviders = missing((r) => r.row?.provider, known.providers);
         if (newTypes.length) await ensureLookupValues('customer_types', newTypes);
         if (newProviders.length) await ensureLookupValues('providers', newProviders);
-        queryClient.invalidateQueries({ queryKey: qk.lookups });
+        if (newTypes.length || newProviders.length) {
+          await queryClient.invalidateQueries({ queryKey: qk.lookups });
+        }
       }
 
       if (replace) {
