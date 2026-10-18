@@ -1,6 +1,9 @@
 import { supabase } from '@/lib/supabase';
 import type {
   Debtor,
+  DebtorCall,
+  DebtorCallInsert,
+  DebtorCallUpdate,
   DebtorBreakdownRow,
   DebtorDimension,
   DebtorFilters,
@@ -18,6 +21,17 @@ import { toLocalPhone } from '@/utils/phone';
 import { AppError, toAppError, unwrap } from './errors';
 
 const SELECT = '*, officer:officers(full_name), period:debtor_periods(period_month)';
+
+const CALL_SELECT =
+  '*, author:profiles!debtor_call_log_created_by_fkey(full_name), officer:officers(full_name)';
+
+function toCall(r: DebtorCall): DebtorCall {
+  return {
+    ...r,
+    amount_collected: r.amount_collected === null ? null : toNumber(r.amount_collected),
+    promised_amount: r.promised_amount === null ? null : toNumber(r.promised_amount),
+  };
+}
 
 const SORTABLE = new Set([
   'customer_name',
@@ -267,6 +281,40 @@ export const debtorsService = {
       collected: toNumber(r.collected),
       worked: toNumber(r.worked),
     }));
+  },
+
+  /* ---------- Call history ----------
+     Every call is its own row, so a promise followed by two part
+     payments keeps all three. The database rolls the latest outcome,
+     the total collected and the call count back onto the debtor. */
+
+  async calls(debtorId: string): Promise<DebtorCall[]> {
+    const rows = (unwrap(
+      await supabase
+        .from('debtor_call_log')
+        .select(CALL_SELECT)
+        .eq('debtor_id', debtorId)
+        .order('called_at', { ascending: false }),
+    ) ?? []) as DebtorCall[];
+    return rows.map(toCall);
+  },
+
+  async addCall(input: DebtorCallInsert): Promise<DebtorCall> {
+    const row = unwrap(
+      await supabase.from('debtor_call_log').insert(input).select(CALL_SELECT).single(),
+    ) as DebtorCall;
+    return toCall(row);
+  },
+
+  async updateCall(id: string, values: DebtorCallUpdate): Promise<DebtorCall> {
+    const row = unwrap(
+      await supabase.from('debtor_call_log').update(values).eq('id', id).select(CALL_SELECT).single(),
+    ) as DebtorCall;
+    return toCall(row);
+  },
+
+  async removeCall(id: string): Promise<void> {
+    unwrap(await supabase.from('debtor_call_log').delete().eq('id', id));
   },
 
   async trend(months = 12): Promise<DebtorTrendRow[]> {

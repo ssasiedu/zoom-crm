@@ -3,7 +3,7 @@ import { toast } from 'sonner';
 import { qk } from '@/lib/queryClient';
 import { debtorsService } from '@/services/debtors';
 import { errorMessage } from '@/services/errors';
-import type { DebtorFilters, DebtorUpdate, SortSpec } from '@/types';
+import type { DebtorCallInsert, DebtorCallUpdate, DebtorFilters, DebtorUpdate, SortSpec } from '@/types';
 import { useAuth } from './useAuth';
 
 export function useDebtorPeriods() {
@@ -82,4 +82,52 @@ export function useAssignDebtors() {
     },
     onError: (err) => toast.error(errorMessage(err)),
   });
+}
+
+/* ---------- Call history ---------- */
+
+export function useDebtorCalls(debtorId: string | null | undefined) {
+  const { session } = useAuth();
+  return useQuery({
+    queryKey: qk.debtorCalls(debtorId ?? 'none'),
+    queryFn: () => debtorsService.calls(debtorId as string),
+    enabled: Boolean(session && debtorId),
+  });
+}
+
+/** Adding, correcting or removing a call also moves the debtor's totals */
+function useCallMutation<TArgs>(
+  fn: (args: TArgs) => Promise<unknown>,
+  debtorId: string,
+  successMessage: string,
+) {
+  const queryClient = useQueryClient();
+  const invalidate = useInvalidateDebtors();
+  return useMutation({
+    mutationFn: fn,
+    onSuccess: () => {
+      toast.success(successMessage);
+      queryClient.invalidateQueries({ queryKey: qk.debtorCalls(debtorId) });
+      queryClient.invalidateQueries({ queryKey: qk.dashboard });
+      queryClient.invalidateQueries({ queryKey: qk.reports });
+      invalidate();
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+}
+
+export function useAddDebtorCall(debtorId: string) {
+  return useCallMutation<DebtorCallInsert>((input) => debtorsService.addCall(input), debtorId, 'Call recorded');
+}
+
+export function useUpdateDebtorCall(debtorId: string) {
+  return useCallMutation<{ id: string; values: DebtorCallUpdate }>(
+    ({ id, values }) => debtorsService.updateCall(id, values),
+    debtorId,
+    'Call updated',
+  );
+}
+
+export function useRemoveDebtorCall(debtorId: string) {
+  return useCallMutation<string>((id) => debtorsService.removeCall(id), debtorId, 'Call removed');
 }

@@ -16,6 +16,7 @@ import type {
   PaymentRow,
   ReportFilters,
   SlaAgingReport,
+  StaffWorkloadRow,
   StatusByRegionRow,
 } from '@/types';
 import type { ExportSheet } from '@/utils/export';
@@ -720,6 +721,154 @@ async function loadTurnaroundSheets(f: ReportFilters): Promise<ExportSheet[]> {
   ];
 }
 
+
+/* ------------------------------------------------------------------ */
+/* 7. Staff workload: ticket work and debtor calls together            */
+/* ------------------------------------------------------------------ */
+function StaffWorkload({ filters, ticketParams }: ReportProps) {
+  const navigate = useNavigate();
+  const theme = useChartTheme();
+  const q = useReport('staff-workload', filters, reportsService.staffWorkload);
+  const rows = q.data ?? [];
+
+  const totals = {
+    calls: sum(rows, (r) => r.total_calls),
+    debtorCalls: sum(rows, (r) => r.debtor_calls),
+    collected: sum(rows, (r) => r.total_collected),
+    fromDebtors: sum(rows, (r) => r.debtor_collected),
+  };
+
+  const columns: ReportColumn<StaffWorkloadRow>[] = [
+    {
+      key: 'name',
+      header: 'Officer',
+      render: (r) => (
+        <span>
+          <span className="font-medium">{r.officer_name}</span>
+          {r.region && <span className="block text-xs text-slate-500">{r.region}</span>}
+        </span>
+      ),
+      footer: 'Total',
+    },
+    { key: 'tickets', header: 'Tickets', align: 'right', render: (r) => r.tickets_assigned, footer: formatNumber(sum(rows, (r) => r.tickets_assigned)) },
+    { key: 'resolved', header: 'Resolved', align: 'right', render: (r) => r.tickets_resolved, footer: formatNumber(sum(rows, (r) => r.tickets_resolved)) },
+    { key: 'tcalls', header: 'Ticket calls', align: 'right', render: (r) => r.ticket_calls, footer: formatNumber(sum(rows, (r) => r.ticket_calls)) },
+    {
+      key: 'dcalls',
+      header: 'Debtor calls',
+      align: 'right',
+      render: (r) =>
+        r.debtor_calls ? (
+          <span>
+            {formatNumber(r.debtor_calls)}
+            <span className="block text-xs text-slate-500">{formatNumber(r.debtors_contacted)} customers</span>
+          </span>
+        ) : (
+          <span className="text-slate-300 dark:text-slate-600">0</span>
+        ),
+      footer: formatNumber(totals.debtorCalls),
+    },
+    { key: 'allcalls', header: 'All calls', align: 'right', render: (r) => <strong>{formatNumber(r.total_calls)}</strong>, footer: formatNumber(totals.calls) },
+    { key: 'tpay', header: 'Ticket payments', align: 'right', render: (r) => money(r.ticket_payments), footer: money(sum(rows, (r) => r.ticket_payments)) },
+    {
+      key: 'dpay',
+      header: 'Debtor collections',
+      align: 'right',
+      render: (r) =>
+        r.debtor_collected ? (
+          <span>
+            {money(r.debtor_collected)}
+            <span className="block text-xs text-slate-500">{formatNumber(r.debtor_payments)} payments</span>
+          </span>
+        ) : (
+          <span className="text-slate-300 dark:text-slate-600">—</span>
+        ),
+      footer: money(totals.fromDebtors),
+    },
+    { key: 'total', header: 'Total received', align: 'right', render: (r) => <strong>{money(r.total_collected)}</strong>, footer: money(totals.collected) },
+    { key: 'avg', header: 'Avg. resolution', align: 'right', render: (r) => formatMinutes(r.avg_resolution_minutes) },
+  ];
+
+  const chart = rows
+    .filter((r) => r.total_calls > 0 || r.total_collected > 0)
+    .slice(0, 12)
+    .map((r) => ({
+      name: r.officer_name.split(' ')[0],
+      Tickets: r.ticket_calls,
+      Debtors: r.debtor_calls,
+      id: r.officer_id,
+    }));
+
+  return (
+    <Frame loading={q.isLoading} error={q.error} retry={() => q.refetch()} empty={rows.length === 0}>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard label="All calls" value={formatNumber(totals.calls)} tone="blue" hint={`${formatNumber(totals.debtorCalls)} to debtors`} />
+        <StatCard label="Ticket calls" value={formatNumber(totals.calls - totals.debtorCalls)} tone="gray" />
+        <StatCard label="Total received" value={formatGHS(totals.collected)} tone="gold" hint={`${formatGHS(totals.fromDebtors)} from debtors`} />
+        <StatCard label="Officers active" value={formatNumber(rows.length)} tone="brand" />
+      </div>
+
+      <ChartCard title="Calls per officer" description="Ticket calls and debtor calls side by side" height={300} empty={chart.length === 0}>
+        <ResponsiveContainer>
+          <BarChart data={chart} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
+            <CartesianGrid stroke={theme.grid} vertical={false} />
+            <XAxis dataKey="name" tick={theme.tick} axisLine={false} tickLine={false} interval={0} />
+            <YAxis allowDecimals={false} tick={theme.tick} axisLine={false} tickLine={false} />
+            <Tooltip content={<ChartTooltip />} cursor={{ fill: theme.cursor }} />
+            <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+            <Bar dataKey="Tickets" stackId="c" fill={theme.brand} />
+            <Bar dataKey="Debtors" stackId="c" fill={theme.gold} radius={[6, 6, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartCard>
+
+      <Card>
+        <CardHeader
+          title="Work done per officer"
+          description="Tickets and debtor calls together. Click an officer to see their tickets."
+        />
+        <ReportTable
+          caption="Staff workload"
+          columns={columns}
+          rows={rows}
+          rowKey={(r) => r.officer_id}
+          onRowClick={(r) => navigate(ticketsUrl({ ...ticketParams, officer: r.officer_id }))}
+        />
+      </Card>
+    </Frame>
+  );
+}
+
+async function loadStaffWorkloadSheets(f: ReportFilters): Promise<ExportSheet[]> {
+  const rows = await reportsService.staffWorkload(f);
+  return [
+    {
+      name: 'Staff workload',
+      head: [
+        'Officer', 'Region', 'Tickets assigned', 'Tickets resolved', 'Tickets active', 'Tickets overdue',
+        'Ticket calls', 'Debtor calls', 'Customers contacted', 'All calls',
+        'Ticket payments (GHS)', 'Debtor collections (GHS)', 'Debtor payments', 'Total received (GHS)',
+        'Avg resolution (min)',
+      ],
+      rows: rows.map((r) => [
+        r.officer_name, r.region ?? '', r.tickets_assigned, r.tickets_resolved, r.tickets_active, r.tickets_overdue,
+        r.ticket_calls, r.debtor_calls, r.debtors_contacted, r.total_calls,
+        pdfMoney(r.ticket_payments), pdfMoney(r.debtor_collected), r.debtor_payments, pdfMoney(r.total_collected),
+        r.avg_resolution_minutes ?? '',
+      ]),
+      foot: [
+        'TOTAL', '',
+        sum(rows, (r) => r.tickets_assigned), sum(rows, (r) => r.tickets_resolved),
+        sum(rows, (r) => r.tickets_active), sum(rows, (r) => r.tickets_overdue),
+        sum(rows, (r) => r.ticket_calls), sum(rows, (r) => r.debtor_calls),
+        sum(rows, (r) => r.debtors_contacted), sum(rows, (r) => r.total_calls),
+        pdfMoney(sum(rows, (r) => r.ticket_payments)), pdfMoney(sum(rows, (r) => r.debtor_collected)),
+        sum(rows, (r) => r.debtor_payments), pdfMoney(sum(rows, (r) => r.total_collected)), '',
+      ],
+    },
+  ];
+}
+
 export const REPORTS: ReportDefinition[] = [
   {
     key: 'status-region',
@@ -757,6 +906,13 @@ export const REPORTS: ReportDefinition[] = [
     Component: Turnaround,
   },
   {
+    key: 'staff-workload',
+    title: 'Staff workload',
+    description: 'Tickets and debtor calls per officer, with everything collected',
+    load: loadStaffWorkloadSheets,
+    Component: StaffWorkload,
+  },
+  {
     key: 'sla-aging',
     title: 'SLA & overdue ageing',
     description: 'Overdue tickets bucketed 0–2, 3–7, 8–14 and 15+ days',
@@ -765,4 +921,12 @@ export const REPORTS: ReportDefinition[] = [
   },
 ];
 
-export { statusSheet, loadIssueSheets, loadPaymentSheets, loadOfficerSheets, loadSlaSheets, loadTurnaroundSheets };
+export {
+  statusSheet,
+  loadIssueSheets,
+  loadPaymentSheets,
+  loadOfficerSheets,
+  loadSlaSheets,
+  loadTurnaroundSheets,
+  loadStaffWorkloadSheets,
+};

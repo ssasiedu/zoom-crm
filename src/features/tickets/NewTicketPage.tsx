@@ -157,15 +157,17 @@ export default function NewTicketPage() {
         }
       />
       <TicketForm form={form} mode="create" isAdmin={can('tickets:editDateOpened')} canEditDueDate={can('tickets:editCore')} canAssign={can('tickets:assign')} />
-      <div className="sticky bottom-0 z-20 -mx-3 mt-5 flex flex-wrap justify-end gap-2 border-t bg-slate-50/90 px-3 py-3 backdrop-blur sm:-mx-5 sm:px-5 lg:-mx-7 lg:px-7 dark:bg-slate-950/90">
-        <Button variant="secondary" onClick={() => navigate(-1)}>
-          Cancel
+      {/* Left-aligned with room kept on the right: hosting badges and chat
+          widgets sit in the bottom-right corner and used to cover Create. */}
+      <div className="sticky bottom-0 z-20 -mx-3 mt-5 flex flex-wrap justify-start gap-2 border-t bg-slate-50/90 px-3 py-3 pr-40 backdrop-blur sm:-mx-5 sm:px-5 sm:pr-48 lg:-mx-7 lg:px-7 lg:pr-48 dark:bg-slate-950/90">
+        <Button type="submit" leftIcon={<Save className="size-4" />} loading={formState.isSubmitting && !anotherRef.current} disabled={formState.isSubmitting}>
+          Create ticket
         </Button>
         <Button variant="outline" leftIcon={<SaveAll className="size-4" />} loading={formState.isSubmitting && anotherRef.current} disabled={formState.isSubmitting} onClick={() => submit(true)}>
           Save & create another
         </Button>
-        <Button type="submit" leftIcon={<Save className="size-4" />} loading={formState.isSubmitting && !anotherRef.current} disabled={formState.isSubmitting}>
-          Create ticket
+        <Button variant="secondary" onClick={() => navigate(-1)}>
+          Cancel
         </Button>
       </div>
     </form>

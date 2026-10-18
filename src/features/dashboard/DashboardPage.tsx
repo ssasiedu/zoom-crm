@@ -96,6 +96,7 @@ export default function DashboardPage() {
   const d = useDashboardData(rf.filters);
   const theme = useChartTheme();
   const k = d.kpis.data;
+  const cb = d.combined.data;
   const drill = (extra: Record<string, string | undefined>) => navigate(ticketsUrl({ ...rf.ticketParams, ...extra }));
 
   const trendFmt = (b: string) => {
@@ -140,7 +141,30 @@ export default function DashboardPage() {
         <StatCard label="Unassigned" value={formatNumber(k?.unassigned)} icon={<UserX />} tone="violet" loading={d.kpis.isLoading} onClick={() => drill({ officer: 'unassigned', status: 'Open,In-Progress' })} />
         <StatCard label="Resolution rate" value={formatPercent(k?.resolution_rate)} icon={<Percent />} tone="brand" loading={d.kpis.isLoading} hint={`SLA met on ${formatPercent(k?.sla_compliance)} of resolved`} />
         <StatCard label="Avg. resolution time" value={formatHours(k?.avg_resolution_hours)} icon={<Clock />} tone="brand" loading={d.kpis.isLoading} hint="Opened → completed" />
-        <StatCard label="Total payments" value={formatGHS(k?.total_payments)} icon={<Banknote />} tone="gold" loading={d.kpis.isLoading} />
+        <StatCard
+          label="Outbound calls"
+          value={formatNumber(cb?.outbound_calls_total)}
+          icon={<PhoneCall />}
+          tone="blue"
+          loading={d.combined.isLoading}
+          hint={
+            cb
+              ? `${formatNumber(cb.ticket_outbound_calls)} from tickets · ${formatNumber(cb.debtor_calls)} debtor calls`
+              : undefined
+          }
+        />
+        <StatCard
+          label="Total received"
+          value={formatGHS(cb?.payments_total ?? k?.total_payments)}
+          icon={<Banknote />}
+          tone="gold"
+          loading={d.combined.isLoading}
+          hint={
+            cb
+              ? `${formatGHS(cb.ticket_payments)} on tickets · ${formatGHS(cb.debtor_collected)} collected from debtors`
+              : undefined
+          }
+        />
         <StatCard
           label="Avg. turnaround"
           value={formatMinutes(d.turnaround.data?.totals.avg_resolution_minutes)}
@@ -226,7 +250,16 @@ export default function DashboardPage() {
       </div>
 
       <div className="mb-5 grid gap-5 lg:grid-cols-2">
-        <ChartCard title="By type of contact" description="Click a bar to see the tickets" loading={d.contactType.isLoading} empty={!d.contactType.data?.length}>
+        <ChartCard
+          title="By type of contact"
+          description={
+            cb && cb.debtor_calls > 0
+              ? `Includes ${formatNumber(cb.debtor_calls)} debtor calls under OUTBOUND CALL. Click a bar to see the tickets.`
+              : 'Click a bar to see the tickets'
+          }
+          loading={d.contactType.isLoading}
+          empty={!d.contactType.data?.length}
+        >
           <ResponsiveContainer>
             <BarChart data={d.contactType.data} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
               <CartesianGrid stroke={theme.grid} vertical={false} />

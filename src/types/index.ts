@@ -450,6 +450,32 @@ export interface DebtorPeriod {
 
 export type DebtorWorkStatus = 'Pending' | 'Worked' | 'Collected';
 
+/** One recorded call on a debtor, which may carry a payment */
+export interface DebtorCall {
+  id: string;
+  debtor_id: string;
+  period_id: string;
+  officer_id: string | null;
+  called_at: string;
+  feedback: string;
+  amount_collected: number | null;
+  payment_reference: string | null;
+  promised_amount: number | null;
+  promised_date: string | null;
+  comment: string | null;
+  created_by: string | null;
+  created_at: string;
+  author?: { full_name: string } | null;
+  officer?: { full_name: string } | null;
+}
+
+export type DebtorCallInsert = Pick<DebtorCall, 'debtor_id' | 'feedback'> &
+  Partial<Pick<DebtorCall, 'called_at' | 'amount_collected' | 'payment_reference' | 'promised_amount' | 'promised_date' | 'comment'>>;
+
+export type DebtorCallUpdate = Partial<
+  Pick<DebtorCall, 'called_at' | 'feedback' | 'amount_collected' | 'payment_reference' | 'promised_amount' | 'promised_date' | 'comment'>
+>;
+
 export interface Debtor {
   id: string;
   period_id: string;
@@ -670,4 +696,55 @@ export interface AiSuggestion {
   watch_out: string;
   based_on: number;
   model: string | null;
+}
+
+
+/* ---------- Tickets and debtor calls together ---------- */
+export interface CombinedTotals {
+  ticket_outbound_calls: number;
+  ticket_calls: number;
+  debtor_calls: number;
+  outbound_calls_total: number;
+  calls_total: number;
+  ticket_payments: number;
+  debtor_collected: number;
+  payments_total: number;
+  debtor_payments_count: number;
+}
+
+export interface ContactMixItem {
+  label: string;
+  count: number;
+  /** how many of those came from debtor calls rather than tickets */
+  from_debtors: number;
+}
+
+export interface StaffWorkloadRow {
+  officer_id: string;
+  officer_name: string;
+  region: string | null;
+  is_active: boolean;
+  tickets_assigned: number;
+  tickets_resolved: number;
+  tickets_active: number;
+  tickets_overdue: number;
+  ticket_calls: number;
+  debtor_calls: number;
+  debtors_contacted: number;
+  total_calls: number;
+  ticket_payments: number;
+  debtor_collected: number;
+  debtor_payments: number;
+  total_collected: number;
+  avg_resolution_minutes: number | null;
+}
+
+export interface StaffWorkloadTrendRow {
+  bucket: string;
+  ticket_calls: number;
+  debtor_calls: number;
+  total_calls: number;
+  ticket_payments: number;
+  debtor_collected: number;
+  total_collected: number;
 }

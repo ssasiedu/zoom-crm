@@ -1,6 +1,10 @@
 import { supabase } from '@/lib/supabase';
 import type {
   BreakdownItem,
+  CombinedTotals,
+  ContactMixItem,
+  StaffWorkloadRow,
+  StaffWorkloadTrendRow,
   IssueByRegionRow,
   Kpis,
   OfficerPerformanceRow,
@@ -54,7 +58,47 @@ const groupRow = (r: TurnaroundGroupRow): TurnaroundGroupRow => ({
   within_sla: r.within_sla === undefined ? undefined : toNumber(r.within_sla),
 });
 
+const COMBINED_KEYS: (keyof CombinedTotals)[] = [
+  'ticket_outbound_calls', 'ticket_calls', 'debtor_calls', 'outbound_calls_total',
+  'calls_total', 'ticket_payments', 'debtor_collected', 'payments_total', 'debtor_payments_count',
+];
+
+const WORKLOAD_KEYS: (keyof StaffWorkloadRow)[] = [
+  'tickets_assigned', 'tickets_resolved', 'tickets_active', 'tickets_overdue', 'ticket_calls',
+  'debtor_calls', 'debtors_contacted', 'total_calls', 'ticket_payments', 'debtor_collected',
+  'debtor_payments', 'total_collected',
+];
+
 export const reportsService = {
+  /** Tickets and debtor calls together: calls made and money taken in */
+  async combined(f: ReportFilters): Promise<CombinedTotals> {
+    const d = await rpc<CombinedTotals>('dashboard_combined', params(f));
+    return num(d, COMBINED_KEYS);
+  },
+
+  /** Type-of-contact mix with debtor calls counted as outbound calls */
+  async contactMix(f: ReportFilters): Promise<ContactMixItem[]> {
+    const rows = (await rpc<ContactMixItem[]>('dashboard_contact_mix', params(f))) ?? [];
+    return rows.map((r) => num(r, ['count', 'from_debtors']));
+  },
+
+  /** One row per officer covering both ticket work and debtor calls */
+  async staffWorkload(f: ReportFilters): Promise<StaffWorkloadRow[]> {
+    const rows = (await rpc<StaffWorkloadRow[]>('report_staff_workload', params(f))) ?? [];
+    return rows.map((r) => ({
+      ...num(r, WORKLOAD_KEYS),
+      avg_resolution_minutes: r.avg_resolution_minutes === null ? null : toNumber(r.avg_resolution_minutes),
+    }));
+  },
+
+  async staffWorkloadTrend(f: ReportFilters, bucket: 'day' | 'week' | 'month'): Promise<StaffWorkloadTrendRow[]> {
+    const { p_issue_type: _i, p_contact_type: _c, ...rest } = params(f);
+    const rows = (await rpc<StaffWorkloadTrendRow[]>('report_staff_workload_trend', { ...rest, p_bucket: bucket })) ?? [];
+    return rows.map((r) =>
+      num(r, ['ticket_calls', 'debtor_calls', 'total_calls', 'ticket_payments', 'debtor_collected', 'total_collected']),
+    );
+  },
+
   async kpis(f: ReportFilters): Promise<Kpis> {
     const d = await rpc<Record<string, unknown>>('dashboard_kpis', params(f));
     return {

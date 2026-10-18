@@ -10,6 +10,7 @@ import {
   MapPin,
   Tags,
   Timer,
+  UserCheck,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -31,6 +32,7 @@ const ICONS: Record<string, typeof BarChart3> = {
   'issue-region': Tags,
   'payments-region': Wallet,
   'officer-performance': Users,
+  'staff-workload': UserCheck,
   'sla-aging': Clock,
   turnaround: Timer,
   monthly: CalendarRange,

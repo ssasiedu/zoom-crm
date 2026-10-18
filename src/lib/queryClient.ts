@@ -44,5 +44,6 @@ export const qk = {
   debtors: ['debtors'] as const,
   myDebtors: ['my-debtors'] as const,
   debtorReports: ['debtor-reports'] as const,
+  debtorCalls: (id: string) => ['debtor-calls', id] as const,
   assistant: (id: string) => ['assistant', id] as const,
 };
