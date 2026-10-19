@@ -748,3 +748,42 @@ export interface StaffWorkloadTrendRow {
   debtor_collected: number;
   total_collected: number;
 }
+
+/* ---------- Drill-downs: the rows behind a total ---------- */
+export interface PaymentLine {
+  source: 'Ticket' | 'Debtor';
+  reference: string | null;
+  name: string;
+  customer_id: string | null;
+  contact_number: string | null;
+  region: string | null;
+  officer: string | null;
+  at: string;
+  amount: number;
+  detail: string | null;
+}
+
+export type DebtorLineKind = 'outstanding' | 'collected' | 'paid';
+
+export interface DebtorLine {
+  customer_id: string | null;
+  customer_name: string;
+  customer_type: string | null;
+  provider: string | null;
+  community: string | null;
+  region: string | null;
+  contact_number: string | null;
+  officer: string | null;
+  /** outstanding / paid */
+  outstanding?: number;
+  collected?: number;
+  still_owing?: number;
+  work_status?: string;
+  calls?: number;
+  /** collected */
+  amount?: number;
+  reference?: string | null;
+  paid_at?: string;
+  comment?: string | null;
+  feedback?: string | null;
+}

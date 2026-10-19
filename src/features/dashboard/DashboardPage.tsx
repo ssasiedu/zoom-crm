@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
   Area,
@@ -17,6 +18,7 @@ import {
 import { format, parseISO } from 'date-fns';
 import {
   AlertTriangle,
+  BadgeCheck,
   Banknote,
   CheckCircle2,
   Clock,
@@ -32,17 +34,37 @@ import {
   UserX,
   Wallet,
 } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChartCard, ChartTooltip, useChartTheme } from '@/components/charts/ChartKit';
-import { Avatar, Card, CardHeader, EmptyState, ErrorState, PageHeader, Button, Skeleton, StatCard } from '@/components/ui';
+import type { SheetColumn } from '@/components/ui';
+import {
+  Avatar,
+  Badge,
+  BreakdownSheet,
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  ErrorState,
+  PageHeader,
+  Skeleton,
+  StatCard,
+} from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import { CHART_PALETTE, STATUS_COLORS } from '@/lib/constants';
 import { qk } from '@/lib/queryClient';
 import { errorMessage } from '@/services/errors';
-import type { TicketStatus } from '@/types';
+import { reportsService } from '@/services/reports';
+import type { DebtorLine, DebtorLineKind, PaymentLine, TicketStatus } from '@/types';
 import { rangeLabel } from '@/utils/dateRange';
-import { formatGHS, formatHours, formatMinutes, formatNumber, formatPercent, formatRelative } from '@/utils/format';
+import { formatDate, formatGHS, formatHours, formatMinutes, formatNumber, formatPercent, formatRelative } from '@/utils/format';
 import { useDebtorSummary } from '@/hooks/useDebtors';
+import { debtorsService } from '@/services/debtors';
+import {
+  DEBTOR_ACCOUNT_COLUMNS,
+  DEBTOR_PAYMENT_COLUMNS,
+  DEBTOR_SHEETS,
+} from '@/features/debtors/debtorSheets';
 import { Link } from 'react-router';
 import { describeActivity } from '@/features/tickets/ActivityTimeline';
 import { ticketsUrl } from '@/features/tickets/ticketFilters';
@@ -58,9 +80,15 @@ function clickDrill(e: unknown, key: string, run: (value: string) => void) {
   if (typeof v === 'string' && v) run(v);
 }
 
-/** This month's debt recovery, for supervisors and admins */
+/** Debt recovery at a glance. Each money card opens the rows behind it. */
 function CollectionsSnapshot() {
   const summary = useDebtorSummary({});
+  const [sheet, setSheet] = useState<DebtorLineKind | null>(null);
+  const lines = useQuery({
+    queryKey: [...qk.debtorReports, 'lines', sheet, 'dashboard'],
+    queryFn: () => debtorsService.lines(sheet as DebtorLineKind, {}),
+    enabled: Boolean(sheet),
+  });
   const s = summary.data;
   if (!summary.isLoading && (!s || s.customers === 0)) return null;
   return (
@@ -71,9 +99,17 @@ function CollectionsSnapshot() {
           Open debtor lists →
         </Link>
       </div>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
         <StatCard label="Accounts" value={formatNumber(s?.customers)} icon={<PhoneCall />} tone="gray" loading={summary.isLoading} />
-        <StatCard label="Outstanding" value={formatGHS(s?.outstanding ?? 0)} icon={<Wallet />} tone="violet" loading={summary.isLoading} />
+        <StatCard
+          label="Outstanding"
+          value={formatGHS(s?.outstanding ?? 0)}
+          icon={<Wallet />}
+          tone="violet"
+          loading={summary.isLoading}
+          hint="See the accounts"
+          onClick={() => setSheet('outstanding')}
+        />
         <StatCard
           label="Collected"
           value={formatGHS(s?.collected ?? 0)}
@@ -81,12 +117,64 @@ function CollectionsSnapshot() {
           tone="green"
           hint={s ? `${formatPercent(s.collection_rate)} of outstanding` : undefined}
           loading={summary.isLoading}
+          onClick={() => setSheet('collected')}
+        />
+        <StatCard
+          label="Customers paid"
+          value={formatNumber(s?.collected_count)}
+          icon={<BadgeCheck />}
+          tone="green"
+          loading={summary.isLoading}
+          hint={s && s.customers ? `of ${formatNumber(s.customers)} accounts` : undefined}
+          onClick={() => setSheet('paid')}
         />
         <StatCard label="Contacted" value={formatPercent(s?.contact_rate ?? 0)} icon={<Percent />} tone="blue" loading={summary.isLoading} />
       </div>
+
+      <BreakdownSheet<DebtorLine>
+        open={Boolean(sheet)}
+        onClose={() => setSheet(null)}
+        title={DEBTOR_SHEETS[sheet ?? 'outstanding'].title}
+        description={DEBTOR_SHEETS[sheet ?? 'outstanding'].description}
+        filename={`debtors-${sheet ?? 'outstanding'}`}
+        columns={sheet === 'collected' ? DEBTOR_PAYMENT_COLUMNS : DEBTOR_ACCOUNT_COLUMNS}
+        rows={lines.data ?? []}
+        loading={lines.isLoading}
+        error={lines.error}
+        onRetry={() => lines.refetch()}
+        emptyText={sheet === 'paid' ? 'No customer has paid yet' : 'Nothing to show'}
+      />
     </section>
   );
 }
+
+const PAYMENT_LINE_COLUMNS: SheetColumn<PaymentLine>[] = [
+  {
+    key: 'source',
+    header: 'From',
+    render: (r) => <Badge tone={r.source === 'Debtor' ? 'gold' : 'blue'}>{r.source}</Badge>,
+    value: (r) => r.source,
+  },
+  { key: 'at', header: 'Date', render: (r) => formatDate(r.at), value: (r) => formatDate(r.at, '') },
+  {
+    key: 'reference',
+    header: 'Reference',
+    render: (r) => <span className="font-mono text-xs">{r.reference ?? ''}</span>,
+    value: (r) => r.reference ?? '',
+  },
+  { key: 'name', header: 'Customer', render: (r) => <span className="font-medium">{r.name}</span>, value: (r) => r.name },
+  { key: 'officer', header: 'Officer', render: (r) => r.officer ?? '', value: (r) => r.officer ?? '' },
+  { key: 'region', header: 'Region', render: (r) => r.region ?? '', value: (r) => r.region ?? '' },
+  {
+    key: 'amount',
+    header: 'Amount',
+    align: 'right',
+    total: 'money',
+    render: (r) => <strong>{formatGHS(r.amount)}</strong>,
+    value: (r) => r.amount,
+  },
+  { key: 'detail', header: 'Details', render: (r) => r.detail ?? '', value: (r) => r.detail ?? '' },
+];
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -97,6 +185,12 @@ export default function DashboardPage() {
   const theme = useChartTheme();
   const k = d.kpis.data;
   const cb = d.combined.data;
+  const [sheet, setSheet] = useState(false);
+  const lines = useQuery({
+    queryKey: [...qk.dashboard, 'payment-lines', rf.filters],
+    queryFn: () => reportsService.paymentLines(rf.filters),
+    enabled: sheet,
+  });
   const drill = (extra: Record<string, string | undefined>) => navigate(ticketsUrl({ ...rf.ticketParams, ...extra }));
 
   const trendFmt = (b: string) => {
@@ -161,9 +255,23 @@ export default function DashboardPage() {
           loading={d.combined.isLoading}
           hint={
             cb
-              ? `${formatGHS(cb.ticket_payments)} on tickets · ${formatGHS(cb.debtor_collected)} collected from debtors`
+              ? `${formatGHS(cb.ticket_payments)} on tickets · ${formatGHS(cb.debtor_collected)} from debtors`
               : undefined
           }
+          onClick={() => setSheet(true)}
+        />
+        <StatCard
+          label="Customers paid"
+          value={formatNumber((cb?.ticket_payment_count ?? 0) + (cb?.debtors_paid ?? 0))}
+          icon={<BadgeCheck />}
+          tone="green"
+          loading={d.combined.isLoading}
+          hint={
+            cb
+              ? `${formatNumber(cb.ticket_payment_count)} on tickets · ${formatNumber(cb.debtors_paid)} debtors`
+              : undefined
+          }
+          onClick={() => setSheet(true)}
         />
         <StatCard
           label="Avg. turnaround"
@@ -354,6 +462,20 @@ export default function DashboardPage() {
           )}
         </div>
       </Card>
+
+      <BreakdownSheet<PaymentLine>
+        open={sheet}
+        onClose={() => setSheet(false)}
+        title="Everything received"
+        description={`Every payment behind the total — ${rangeLabel(rf.range)}`}
+        filename="payments-received"
+        columns={PAYMENT_LINE_COLUMNS}
+        rows={lines.data ?? []}
+        loading={lines.isLoading}
+        error={lines.error}
+        onRetry={() => lines.refetch()}
+        emptyText="No payments recorded for these filters"
+      />
     </>
   );
 }

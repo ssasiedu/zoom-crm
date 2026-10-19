@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { RowSelectionState, VisibilityState } from '@tanstack/react-table';
 import { format, parse, startOfMonth } from 'date-fns';
 import {
+  BadgeCheck,
   CalendarPlus,
   ChevronDown,
   Download,
@@ -21,15 +22,18 @@ import {
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useAssignDebtors, useDebtorList, useDebtorPeriods, useDebtorSummary, useInvalidateDebtors } from '@/hooks/useDebtors';
 import { toOptions, useLookups, useOfficers } from '@/hooks/useLookups';
+import { qk } from '@/lib/queryClient';
 import { debtorsService } from '@/services/debtors';
 import { errorMessage } from '@/services/errors';
-import type { Debtor } from '@/types';
+import type { Debtor, DebtorLine, DebtorLineKind } from '@/types';
 import {
   Badge,
+  BreakdownSheet,
   Button,
   Card,
   ConfirmDialog,
@@ -50,6 +54,7 @@ import { OfficerPicker } from '@/features/tickets/OfficerPicker';
 import { DebtorAnalytics } from './DebtorAnalytics';
 import { DebtorDrawer } from './DebtorDrawer';
 import { DEBTOR_HIDDEN_COLUMNS, debtorColumns } from './debtorColumns';
+import { DEBTOR_ACCOUNT_COLUMNS, DEBTOR_PAYMENT_COLUMNS, DEBTOR_SHEETS } from './debtorSheets';
 import { exportDebtors } from './debtorExport';
 import { DebtorUploadDialog } from './DebtorUploadDialog';
 import { useDebtorUrlState } from './debtorFilters';
@@ -102,7 +107,13 @@ export default function DebtorsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debounced]);
 
+  const [sheet, setSheet] = useState<DebtorLineKind | null>(null);
   const summary = useDebtorSummary(filters);
+  const lines = useQuery({
+    queryKey: [...qk.debtorReports, 'lines', sheet, filters],
+    queryFn: () => debtorsService.lines(sheet as DebtorLineKind, filters),
+    enabled: Boolean(sheet),
+  });
   const list = useDebtorList({ filters, page, pageSize, sort: sorting });
   const assign = useAssignDebtors();
 
@@ -209,14 +220,32 @@ export default function DebtorsPage() {
 
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <StatCard label="Accounts" value={formatNumber(s?.customers)} icon={<ListChecks />} tone="gray" loading={summary.isLoading} />
-        <StatCard label="Outstanding" value={formatGHS(s?.outstanding ?? 0)} icon={<Wallet />} tone="violet" loading={summary.isLoading} />
+        <StatCard
+          label="Outstanding"
+          value={formatGHS(s?.outstanding ?? 0)}
+          icon={<Wallet />}
+          tone="violet"
+          loading={summary.isLoading}
+          hint="See the accounts"
+          onClick={() => setSheet('outstanding')}
+        />
         <StatCard
           label="Collected"
           value={formatGHS(s?.collected ?? 0)}
           icon={<HandCoins />}
           tone="green"
-          hint={s ? `${formatPercent(s.collection_rate)} of outstanding` : undefined}
+          hint={s ? `${formatPercent(s.collection_rate)} of outstanding · see payments` : undefined}
           loading={summary.isLoading}
+          onClick={() => setSheet('collected')}
+        />
+        <StatCard
+          label="Customers paid"
+          value={formatNumber(s?.collected_count)}
+          icon={<BadgeCheck />}
+          tone="green"
+          loading={summary.isLoading}
+          hint={s && s.customers ? `${formatPercent((100 * s.collected_count) / s.customers)} of accounts` : undefined}
+          onClick={() => setSheet('paid')}
         />
         <StatCard
           label="Still to call"
@@ -373,6 +402,20 @@ export default function DebtorsPage() {
           )}
         </Card>
       )}
+
+      <BreakdownSheet<DebtorLine>
+        open={Boolean(sheet)}
+        onClose={() => setSheet(null)}
+        title={DEBTOR_SHEETS[sheet ?? 'outstanding'].title}
+        description={`${DEBTOR_SHEETS[sheet ?? 'outstanding'].description} — ${monthLabel(period)}`}
+        filename={`debtors-${sheet ?? 'outstanding'}`}
+        columns={sheet === 'collected' ? DEBTOR_PAYMENT_COLUMNS : DEBTOR_ACCOUNT_COLUMNS}
+        rows={lines.data ?? []}
+        loading={lines.isLoading}
+        error={lines.error}
+        onRetry={() => lines.refetch()}
+        emptyText={sheet === 'paid' ? 'No customer has paid yet for this selection' : 'Nothing to show for these filters'}
+      />
 
       <DebtorDrawer debtor={open} open={Boolean(open)} onClose={() => setOpen(null)} />
       <DebtorUploadDialog open={uploadOpen} onClose={() => setUploadOpen(false)} periodId={periodId || undefined} />

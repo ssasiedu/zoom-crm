@@ -4,6 +4,8 @@ import type {
   DebtorCall,
   DebtorCallInsert,
   DebtorCallUpdate,
+  DebtorLine,
+  DebtorLineKind,
   DebtorBreakdownRow,
   DebtorDimension,
   DebtorFilters,
@@ -280,6 +282,30 @@ export const debtorsService = {
       outstanding: toNumber(r.outstanding),
       collected: toNumber(r.collected),
       worked: toNumber(r.worked),
+    }));
+  },
+
+  /** The rows behind the outstanding, collected and paid figures */
+  async lines(kind: DebtorLineKind, f: DebtorFilters): Promise<DebtorLine[]> {
+    const rows = (unwrap(
+      await supabase.rpc('debtor_lines', {
+        p_period: f.period ?? null,
+        p_officer: f.officer ?? null,
+        p_provider: f.provider ?? null,
+        p_customer_type: f.customerType ?? null,
+        p_community: f.community ?? null,
+        p_region: f.region ?? null,
+        p_feedback: f.feedback ?? null,
+        p_kind: kind,
+        p_limit: 5000,
+      }),
+    ) ?? []) as DebtorLine[];
+    return rows.map((r) => ({
+      ...r,
+      outstanding: r.outstanding === undefined ? undefined : toNumber(r.outstanding),
+      collected: r.collected === undefined ? undefined : toNumber(r.collected),
+      still_owing: r.still_owing === undefined ? undefined : toNumber(r.still_owing),
+      amount: r.amount === undefined ? undefined : toNumber(r.amount),
     }));
   },
 

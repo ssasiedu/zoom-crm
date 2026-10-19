@@ -3,6 +3,7 @@ import type {
   BreakdownItem,
   CombinedTotals,
   ContactMixItem,
+  PaymentLine,
   StaffWorkloadRow,
   StaffWorkloadTrendRow,
   IssueByRegionRow,
@@ -80,6 +81,16 @@ export const reportsService = {
   async contactMix(f: ReportFilters): Promise<ContactMixItem[]> {
     const rows = (await rpc<ContactMixItem[]>('dashboard_contact_mix', params(f))) ?? [];
     return rows.map((r) => num(r, ['count', 'from_debtors']));
+  },
+
+  /** Every payment behind the "Total received" figure */
+  async paymentLines(f: ReportFilters, source?: 'ticket' | 'debtor'): Promise<PaymentLine[]> {
+    const rows = (await rpc<PaymentLine[]>('report_payment_lines', {
+      ...params(f),
+      p_source: source ?? null,
+      p_limit: 5000,
+    })) ?? [];
+    return rows.map((r) => ({ ...r, amount: toNumber(r.amount) }));
   },
 
   /** One row per officer covering both ticket work and debtor calls */
