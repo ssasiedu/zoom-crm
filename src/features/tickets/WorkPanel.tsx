@@ -169,22 +169,23 @@ export function WorkPanel({ ticket }: { ticket: TicketRow }) {
         </Field>
       </div>
 
-      {(needsPayment || ticket.payment_amount !== null) && (
-        <div className="grid gap-4 rounded-lg border border-gold-400/50 p-3 sm:grid-cols-2">
-          <Field label={`${L.payment_amount} (GH₵)`} htmlFor="w-payment_amount" required={needsPayment} error={errors.payment_amount}>
-            <Input id="w-payment_amount" inputMode="decimal" value={v.payment_amount} onChange={set('payment_amount')} invalid={!!errors.payment_amount} />
-          </Field>
-          <Field label={L.payment_source} htmlFor="w-payment_source" required={needsPayment} error={errors.payment_source}>
-            <Select id="w-payment_source" placeholder="Select" value={v.payment_source} onChange={set('payment_source')} options={toOptions(active.payment_sources)} invalid={!!errors.payment_source} />
-          </Field>
-          <Field label={L.payment_type} htmlFor="w-payment_type" required={needsPayment} error={errors.payment_type}>
-            <Select id="w-payment_type" placeholder="Select" value={v.payment_type} onChange={set('payment_type')} options={toOptions(active.payment_types)} invalid={!!errors.payment_type} />
-          </Field>
-          <Field label={L.payment_status} htmlFor="w-payment_status" required={needsPayment} error={errors.payment_status}>
-            <Select id="w-payment_status" placeholder="Select" value={v.payment_status} onChange={set('payment_status')} options={toOptions(active.payment_statuses)} invalid={!!errors.payment_status} />
-          </Field>
-        </div>
-      )}
+      <div className="grid gap-4 rounded-lg border border-gold-400/50 p-3 sm:grid-cols-2">
+        <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase sm:col-span-2">
+          Payment{needsPayment ? ' (required for this issue type)' : ''}
+        </p>
+        <Field label={`${L.payment_amount} (GH₵)`} htmlFor="w-payment_amount" required={needsPayment} error={errors.payment_amount}>
+          <Input id="w-payment_amount" inputMode="decimal" value={v.payment_amount} onChange={set('payment_amount')} invalid={!!errors.payment_amount} />
+        </Field>
+        <Field label={L.payment_source} htmlFor="w-payment_source" required={needsPayment} error={errors.payment_source}>
+          <Select id="w-payment_source" placeholder="Select" value={v.payment_source} onChange={set('payment_source')} options={toOptions(active.payment_sources)} invalid={!!errors.payment_source} />
+        </Field>
+        <Field label={L.payment_type} htmlFor="w-payment_type" required={needsPayment} error={errors.payment_type}>
+          <Select id="w-payment_type" placeholder="Select" value={v.payment_type} onChange={set('payment_type')} options={toOptions(active.payment_types)} invalid={!!errors.payment_type} />
+        </Field>
+        <Field label={L.payment_status} htmlFor="w-payment_status" required={needsPayment} error={errors.payment_status}>
+          <Select id="w-payment_status" placeholder="Select" value={v.payment_status} onChange={set('payment_status')} options={toOptions(active.payment_statuses)} invalid={!!errors.payment_status} />
+        </Field>
+      </div>
 
       <div className="no-print flex flex-wrap gap-2">
         {ticket.status !== 'Closed' && (

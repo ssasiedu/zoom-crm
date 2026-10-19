@@ -4,6 +4,7 @@ import { endOfMonth, format, parse, startOfMonth, subMonths } from 'date-fns';
 import { FileDown, FileSpreadsheet, Printer } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button, Card, CardHeader, ErrorState, Field, Input, StatCard, TableSkeleton } from '@/components/ui';
+import { useBranding } from '@/hooks/useSettings';
 import { qk } from '@/lib/queryClient';
 import { errorMessage } from '@/services/errors';
 import { reportsService } from '@/services/reports';
@@ -25,6 +26,7 @@ async function loadMonthly(f: ReportFilters) {
 }
 
 export function MonthlyReport({ baseFilters }: { baseFilters: ReportFilters }) {
+  const branding = useBranding();
   const [month, setMonth] = useState(() => format(subMonths(new Date(), new Date().getDate() < 5 ? 1 : 0), 'yyyy-MM'));
   const [busy, setBusy] = useState(false);
   const monthDate = parse(`${month}-01`, 'yyyy-MM-dd', new Date());
@@ -90,7 +92,7 @@ export function MonthlyReport({ baseFilters }: { baseFilters: ReportFilters }) {
       const sheets = await buildSheets();
       const opts = {
         filename: `monthly-report-${month}`,
-        title: `DM CRM — Monthly report, ${label}`,
+        title: `${branding.app_name} — Monthly report, ${label}`,
         subtitle: [baseFilters.region, baseFilters.issueType, baseFilters.contactType].filter(Boolean).join(' · ') || 'All regions',
         sheets: kind === 'pdf' ? toPdfSheets(sheets) : sheets,
         orientation: 'landscape' as const,
@@ -127,7 +129,9 @@ export function MonthlyReport({ baseFilters }: { baseFilters: ReportFilters }) {
       </Card>
 
       <div className="hidden print:block">
-        <h1 className="text-xl font-bold">DM CRM — Monthly report, {label}</h1>
+        <h1 className="text-xl font-bold">
+          {branding.app_name} — Monthly report, {label}
+        </h1>
       </div>
 
       {q.isLoading ? (

@@ -4,6 +4,7 @@ import type { RowSelectionState, VisibilityState } from '@tanstack/react-table';
 import { ArrowRightLeft, ChevronDown, ClipboardList, Download, FileSpreadsheet, FileText, Plus, Upload, UserCheck, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
+import { useBranding } from '@/hooks/useSettings';
 import { useTicketList } from '@/hooks/useTickets';
 import { errorMessage } from '@/services/errors';
 import { ticketsService } from '@/services/tickets';
@@ -20,11 +21,12 @@ import { TicketDrawer } from './TicketDrawer';
 import { TicketFiltersBar } from './TicketFiltersBar';
 import { useTicketUrlState } from './ticketFilters';
 
-const VIS_KEY = 'dm-crm:ticket-columns';
+const VIS_KEY = 'zoomlion-crm:ticket-columns';
 
 export default function AllTicketsPage() {
   const navigate = useNavigate();
   const { can, role } = useAuth();
+  const branding = useBranding();
   const state = useTicketUrlState();
   const { filters, sorting, page, pageSize, update, setSorting } = state;
   const [selection, setSelection] = useState<RowSelectionState>({});
@@ -77,7 +79,12 @@ export default function AllTicketsPage() {
         toast.error('PDF export is limited to 3,000 rows. Use Excel instead or narrow the filters.');
         return;
       }
-      exportTickets(all, fmt, selected.length ? `${selected.length} selected tickets` : `${all.length} tickets (current filters)`);
+      exportTickets(
+        all,
+        fmt,
+        selected.length ? `${selected.length} selected tickets` : `${all.length} tickets (current filters)`,
+        branding.app_name,
+      );
       toast.success(`Exported ${formatNumber(all.length)} tickets`);
     } catch (err) {
       toast.error(errorMessage(err));

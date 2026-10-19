@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import {
   Area,
@@ -17,27 +18,54 @@ import {
 import { format, parseISO } from 'date-fns';
 import {
   AlertTriangle,
+  BadgeCheck,
   Banknote,
   CheckCircle2,
   Clock,
   FolderOpen,
   Inbox,
   Lock,
+  HandCoins,
   Percent,
+  PhoneCall,
   PlayCircle,
   RefreshCw,
+  Timer,
   UserX,
+  Wallet,
 } from 'lucide-react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChartCard, ChartTooltip, useChartTheme } from '@/components/charts/ChartKit';
-import { Avatar, Card, CardHeader, EmptyState, ErrorState, PageHeader, Button, Skeleton, StatCard } from '@/components/ui';
+import type { SheetColumn } from '@/components/ui';
+import {
+  Avatar,
+  Badge,
+  BreakdownSheet,
+  Button,
+  Card,
+  CardHeader,
+  EmptyState,
+  ErrorState,
+  PageHeader,
+  Skeleton,
+  StatCard,
+} from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import { CHART_PALETTE, STATUS_COLORS } from '@/lib/constants';
 import { qk } from '@/lib/queryClient';
 import { errorMessage } from '@/services/errors';
-import type { TicketStatus } from '@/types';
+import { reportsService } from '@/services/reports';
+import type { DebtorLine, DebtorLineKind, PaymentLine, TicketStatus } from '@/types';
 import { rangeLabel } from '@/utils/dateRange';
-import { formatGHS, formatHours, formatNumber, formatPercent, formatRelative } from '@/utils/format';
+import { formatDate, formatGHS, formatHours, formatMinutes, formatNumber, formatPercent, formatRelative } from '@/utils/format';
+import { useDebtorSummary } from '@/hooks/useDebtors';
+import { debtorsService } from '@/services/debtors';
+import {
+  DEBTOR_ACCOUNT_COLUMNS,
+  DEBTOR_PAYMENT_COLUMNS,
+  DEBTOR_SHEETS,
+} from '@/features/debtors/debtorSheets';
+import { Link } from 'react-router';
 import { describeActivity } from '@/features/tickets/ActivityTimeline';
 import { ticketsUrl } from '@/features/tickets/ticketFilters';
 import { ReportFiltersBar } from '@/features/reports/ReportFiltersBar';
@@ -52,14 +80,117 @@ function clickDrill(e: unknown, key: string, run: (value: string) => void) {
   if (typeof v === 'string' && v) run(v);
 }
 
+/** Debt recovery at a glance. Each money card opens the rows behind it. */
+function CollectionsSnapshot() {
+  const summary = useDebtorSummary({});
+  const [sheet, setSheet] = useState<DebtorLineKind | null>(null);
+  const lines = useQuery({
+    queryKey: [...qk.debtorReports, 'lines', sheet, 'dashboard'],
+    queryFn: () => debtorsService.lines(sheet as DebtorLineKind, {}),
+    enabled: Boolean(sheet),
+  });
+  const s = summary.data;
+  if (!summary.isLoading && (!s || s.customers === 0)) return null;
+  return (
+    <section aria-label="Debt recovery" className="mb-5">
+      <div className="mb-2 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-slate-500 uppercase">Debt recovery (all months)</h2>
+        <Link to="/debtors" className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-400">
+          Open debtor lists →
+        </Link>
+      </div>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        <StatCard label="Accounts" value={formatNumber(s?.customers)} icon={<PhoneCall />} tone="gray" loading={summary.isLoading} />
+        <StatCard
+          label="Outstanding"
+          value={formatGHS(s?.outstanding ?? 0)}
+          icon={<Wallet />}
+          tone="violet"
+          loading={summary.isLoading}
+          hint="See the accounts"
+          onClick={() => setSheet('outstanding')}
+        />
+        <StatCard
+          label="Collected"
+          value={formatGHS(s?.collected ?? 0)}
+          icon={<HandCoins />}
+          tone="green"
+          hint={s ? `${formatPercent(s.collection_rate)} of outstanding` : undefined}
+          loading={summary.isLoading}
+          onClick={() => setSheet('collected')}
+        />
+        <StatCard
+          label="Customers paid"
+          value={formatNumber(s?.collected_count)}
+          icon={<BadgeCheck />}
+          tone="green"
+          loading={summary.isLoading}
+          hint={s && s.customers ? `of ${formatNumber(s.customers)} accounts` : undefined}
+          onClick={() => setSheet('paid')}
+        />
+        <StatCard label="Contacted" value={formatPercent(s?.contact_rate ?? 0)} icon={<Percent />} tone="blue" loading={summary.isLoading} />
+      </div>
+
+      <BreakdownSheet<DebtorLine>
+        open={Boolean(sheet)}
+        onClose={() => setSheet(null)}
+        title={DEBTOR_SHEETS[sheet ?? 'outstanding'].title}
+        description={DEBTOR_SHEETS[sheet ?? 'outstanding'].description}
+        filename={`debtors-${sheet ?? 'outstanding'}`}
+        columns={sheet === 'collected' ? DEBTOR_PAYMENT_COLUMNS : DEBTOR_ACCOUNT_COLUMNS}
+        rows={lines.data ?? []}
+        loading={lines.isLoading}
+        error={lines.error}
+        onRetry={() => lines.refetch()}
+        emptyText={sheet === 'paid' ? 'No customer has paid yet' : 'Nothing to show'}
+      />
+    </section>
+  );
+}
+
+const PAYMENT_LINE_COLUMNS: SheetColumn<PaymentLine>[] = [
+  {
+    key: 'source',
+    header: 'From',
+    render: (r) => <Badge tone={r.source === 'Debtor' ? 'gold' : 'blue'}>{r.source}</Badge>,
+    value: (r) => r.source,
+  },
+  { key: 'at', header: 'Date', render: (r) => formatDate(r.at), value: (r) => formatDate(r.at, '') },
+  {
+    key: 'reference',
+    header: 'Reference',
+    render: (r) => <span className="font-mono text-xs">{r.reference ?? ''}</span>,
+    value: (r) => r.reference ?? '',
+  },
+  { key: 'name', header: 'Customer', render: (r) => <span className="font-medium">{r.name}</span>, value: (r) => r.name },
+  { key: 'officer', header: 'Officer', render: (r) => r.officer ?? '', value: (r) => r.officer ?? '' },
+  { key: 'region', header: 'Region', render: (r) => r.region ?? '', value: (r) => r.region ?? '' },
+  {
+    key: 'amount',
+    header: 'Amount',
+    align: 'right',
+    total: 'money',
+    render: (r) => <strong>{formatGHS(r.amount)}</strong>,
+    value: (r) => r.amount,
+  },
+  { key: 'detail', header: 'Details', render: (r) => r.detail ?? '', value: (r) => r.detail ?? '' },
+];
+
 export default function DashboardPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { profile, role } = useAuth();
+  const { profile, role, can } = useAuth();
   const rf = useReportFilters('month');
   const d = useDashboardData(rf.filters);
   const theme = useChartTheme();
   const k = d.kpis.data;
+  const cb = d.combined.data;
+  const [sheet, setSheet] = useState(false);
+  const lines = useQuery({
+    queryKey: [...qk.dashboard, 'payment-lines', rf.filters],
+    queryFn: () => reportsService.paymentLines(rf.filters),
+    enabled: sheet,
+  });
   const drill = (extra: Record<string, string | undefined>) => navigate(ticketsUrl({ ...rf.ticketParams, ...extra }));
 
   const trendFmt = (b: string) => {
@@ -104,8 +235,63 @@ export default function DashboardPage() {
         <StatCard label="Unassigned" value={formatNumber(k?.unassigned)} icon={<UserX />} tone="violet" loading={d.kpis.isLoading} onClick={() => drill({ officer: 'unassigned', status: 'Open,In-Progress' })} />
         <StatCard label="Resolution rate" value={formatPercent(k?.resolution_rate)} icon={<Percent />} tone="brand" loading={d.kpis.isLoading} hint={`SLA met on ${formatPercent(k?.sla_compliance)} of resolved`} />
         <StatCard label="Avg. resolution time" value={formatHours(k?.avg_resolution_hours)} icon={<Clock />} tone="brand" loading={d.kpis.isLoading} hint="Opened → completed" />
-        <StatCard label="Total payments" value={formatGHS(k?.total_payments)} icon={<Banknote />} tone="gold" loading={d.kpis.isLoading} />
+        <StatCard
+          label="Outbound calls"
+          value={formatNumber(cb?.outbound_calls_total)}
+          icon={<PhoneCall />}
+          tone="blue"
+          loading={d.combined.isLoading}
+          hint={
+            cb
+              ? `${formatNumber(cb.ticket_outbound_calls)} from tickets · ${formatNumber(cb.debtor_calls)} debtor calls`
+              : undefined
+          }
+        />
+        <StatCard
+          label="Total received"
+          value={formatGHS(cb?.payments_total ?? k?.total_payments)}
+          icon={<Banknote />}
+          tone="gold"
+          loading={d.combined.isLoading}
+          hint={
+            cb
+              ? `${formatGHS(cb.ticket_payments)} on tickets · ${formatGHS(cb.debtor_collected)} from debtors`
+              : undefined
+          }
+          onClick={() => setSheet(true)}
+        />
+        <StatCard
+          label="Customers paid"
+          value={formatNumber((cb?.ticket_payment_count ?? 0) + (cb?.debtors_paid ?? 0))}
+          icon={<BadgeCheck />}
+          tone="green"
+          loading={d.combined.isLoading}
+          hint={
+            cb
+              ? `${formatNumber(cb.ticket_payment_count)} on tickets · ${formatNumber(cb.debtors_paid)} debtors`
+              : undefined
+          }
+          onClick={() => setSheet(true)}
+        />
+        <StatCard
+          label="Avg. turnaround"
+          value={formatMinutes(d.turnaround.data?.totals.avg_resolution_minutes)}
+          icon={<Timer />}
+          tone="brand"
+          loading={d.turnaround.isLoading}
+          hint="Raised → completed"
+        />
+        <StatCard
+          label="Avg. waiting time"
+          value={formatMinutes(d.turnaround.data?.totals.avg_response_minutes)}
+          icon={<Clock />}
+          tone="amber"
+          loading={d.turnaround.isLoading}
+          hint="Raised → first worked on"
+        />
       </section>
+
+      {can('debtors:view') && <CollectionsSnapshot />}
 
       <div className="mb-5 grid gap-5 xl:grid-cols-3">
         <ChartCard
@@ -172,7 +358,16 @@ export default function DashboardPage() {
       </div>
 
       <div className="mb-5 grid gap-5 lg:grid-cols-2">
-        <ChartCard title="By type of contact" description="Click a bar to see the tickets" loading={d.contactType.isLoading} empty={!d.contactType.data?.length}>
+        <ChartCard
+          title="By type of contact"
+          description={
+            cb && cb.debtor_calls > 0
+              ? `Includes ${formatNumber(cb.debtor_calls)} debtor calls under OUTBOUND CALL. Click a bar to see the tickets.`
+              : 'Click a bar to see the tickets'
+          }
+          loading={d.contactType.isLoading}
+          empty={!d.contactType.data?.length}
+        >
           <ResponsiveContainer>
             <BarChart data={d.contactType.data} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
               <CartesianGrid stroke={theme.grid} vertical={false} />
@@ -267,6 +462,20 @@ export default function DashboardPage() {
           )}
         </div>
       </Card>
+
+      <BreakdownSheet<PaymentLine>
+        open={sheet}
+        onClose={() => setSheet(false)}
+        title="Everything received"
+        description={`Every payment behind the total — ${rangeLabel(rf.range)}`}
+        filename="payments-received"
+        columns={PAYMENT_LINE_COLUMNS}
+        rows={lines.data ?? []}
+        loading={lines.isLoading}
+        error={lines.error}
+        onRetry={() => lines.refetch()}
+        emptyText="No payments recorded for these filters"
+      />
     </>
   );
 }

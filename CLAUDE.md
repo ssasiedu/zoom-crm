@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-DM CRM — ticket and issue management for a Ghanaian customer-service and Debt Management (DM) team. Agents log client contacts (calls, WhatsApp, SMS, walk-ins); supervisors assign tickets to DM officers; officers work their queue from their phones; managers track SLAs, payments and performance across Ghana's 16 regions.
+Zoomlion CRM — ticket, issue and debt management for a Ghanaian customer-service team. (The name, logo and colours are configurable at runtime via `app_settings`, so the product name in the UI comes from the database, not from code.) Agents log client contacts (calls, WhatsApp, SMS, walk-ins); supervisors assign tickets to DM officers; officers work their queue from their phones; managers track SLAs, payments and performance across Ghana's 16 regions.
 
 Stack: React 19, Vite 7, TypeScript, Tailwind CSS v4, React Query, React Router v7, React Hook Form + Zod, Supabase (Postgres, Auth, RLS, Realtime, Storage, Edge Functions).
 
@@ -47,7 +47,11 @@ Read `supabase/migrations/` in order to understand the actual business rules bef
 - `tickets_after_change` writes the audit trail (`ticket_activity`) and creates notifications.
 - Dashboard/report numbers come from `SECURITY INVOKER` SQL functions, so they automatically respect RLS (an agent's dashboard only counts their own tickets) — don't try to replicate that filtering in the client.
 - Lookup values (contact types, issue types, payment sources/types/statuses, regions) are stored on tickets by name with `ON UPDATE CASCADE` FKs, so renaming a value in Administration updates every ticket instantly; values in use can only be deactivated, not deleted.
-- `tickets`, `notifications`, `ticket_comments`, `ticket_activity` are in the `supabase_realtime` publication and consumed via `src/hooks/useRealtime.ts`.
+- `tickets`, `notifications`, `ticket_comments`, `ticket_activity`, `sms_messages`, `debtors`, `debtor_periods` are in the `supabase_realtime` publication; ticket-related ones are consumed via `src/hooks/useRealtime.ts`.
+- Turnaround: `tickets_zz_timing` (BEFORE trigger, named to fire last) maintains `first_response_at`, `response_minutes` and `resolution_minutes`. `report_turnaround` aggregates them.
+- Debtors: monthly `debtor_periods` + `debtors`; `work_status` is a generated column; `debtors_before_write` restricts officers to amount/feedback/comment on their own rows.
+- SMS: `sms_templates` + `sms_messages`; `tickets_sms_after_change` queues a pending message on ticket events when `app_settings['sms']` has `enabled` and `auto_send`. The `send-sms` edge function does the sending — never call a provider from the client.
+- Secrets (SMS, AI keys) live in `app_settings` rows flagged `is_secret`, readable only by admins and by edge functions using the service role.
 - Attachments live in the private `ticket-attachments` Storage bucket under `<ticket_id>/…`, served via short-lived signed URLs, access following ticket visibility.
 - A ticket is overdue when `DUE DATE` is before today in `Africa/Accra` time and status is Open or In-Progress — this timezone matters for any date-range filter or report logic (`src/utils/dateRange.ts`).
 

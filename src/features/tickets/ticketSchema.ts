@@ -10,7 +10,7 @@ export function buildTicketSchema(lookups: Lookups | null) {
   return z
     .object({
       client_name: req('CLIENT').max(150),
-      client_id: req('ID').max(60),
+      client_id: z.string().trim().max(60),
       contact_number: req('CONTACT NUMBER').refine(isValidGhanaPhone, {
         message: 'Use a Ghana number: 0XXXXXXXXX or +233XXXXXXXXX',
       }),
@@ -85,7 +85,7 @@ export const EMPTY_TICKET: TicketFormValues = {
 export function ticketToForm(t: Ticket): TicketFormValues {
   return {
     client_name: t.client_name,
-    client_id: t.client_id,
+    client_id: t.client_id ?? '',
     contact_number: toLocalPhone(t.contact_number),
     contact_type: t.contact_type,
     community: t.community,
@@ -127,7 +127,7 @@ export function formToInsert(
   const hasPayment = requiresPayment(v.issue_type, opts.lookups) || v.payment_amount.trim() !== '';
   return {
     client_name: v.client_name.trim(),
-    client_id: v.client_id.trim(),
+    client_id: emptyToNull(v.client_id),
     contact_number: toLocalPhone(v.contact_number),
     contact_type: v.contact_type,
     community: v.community.trim(),

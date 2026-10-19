@@ -15,6 +15,10 @@ export type Permission =
   | 'tickets:export'
   | 'tickets:import'
   | 'reports:view'
+  | 'sms:send'
+  | 'debtors:view'
+  | 'debtors:manage'
+  | 'debtors:work'
   | 'admin';
 
 const ALL: Permission[] = [
@@ -32,6 +36,10 @@ const ALL: Permission[] = [
   'tickets:export',
   'tickets:import',
   'reports:view',
+  'sms:send',
+  'debtors:view',
+  'debtors:manage',
+  'debtors:work',
   'admin',
 ];
 
@@ -44,8 +52,16 @@ const SUPERVISOR_EXCLUDED: Permission[] = ['admin', 'tickets:editDateOpened', 't
 export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   admin: ALL,
   supervisor: ALL.filter((p) => !SUPERVISOR_EXCLUDED.includes(p)),
-  agent: ['dashboard:view', 'tickets:list', 'tickets:create', 'tickets:assign', 'tickets:export', 'tickets:import'],
-  dm_officer: ['tickets:work'],
+  agent: [
+    'dashboard:view',
+    'tickets:list',
+    'tickets:create',
+    'tickets:assign',
+    'tickets:export',
+    'tickets:import',
+    'sms:send',
+  ],
+  dm_officer: ['tickets:work', 'sms:send', 'debtors:work'],
 };
 
 export function hasPermission(role: Role | null | undefined, permission: Permission): boolean {

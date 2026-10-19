@@ -12,6 +12,9 @@ const EMPTY: Lookups = {
   payment_types: [],
   payment_statuses: [],
   regions: [],
+  customer_types: [],
+  providers: [],
+  debtor_feedback: [],
 };
 
 /** All lookup tables (including inactive values) */
@@ -31,6 +34,9 @@ export function useLookups() {
     payment_types: data.payment_types.filter((x) => x.is_active),
     payment_statuses: data.payment_statuses.filter((x) => x.is_active),
     regions: data.regions.filter((x) => x.is_active),
+    customer_types: data.customer_types.filter((x) => x.is_active),
+    providers: data.providers.filter((x) => x.is_active),
+    debtor_feedback: data.debtor_feedback.filter((x) => x.is_active),
   } satisfies Lookups;
   return { ...query, lookups: data, active };
 }

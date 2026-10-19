@@ -138,9 +138,15 @@ export async function readSpreadsheet(file: File): Promise<Record<string, unknow
   return XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[first], { defval: '', raw: true });
 }
 
-export function downloadTemplate(filename: string, head: string[], example: Cell[][], notes: string[][]): void {
+export function downloadTemplate(
+  filename: string,
+  head: string[],
+  example: Cell[][],
+  notes: string[][],
+  sheetName = 'Tickets',
+): void {
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([head, ...example]), 'Tickets');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([head, ...example]), safeSheetName(sheetName));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(notes), 'Allowed values');
   XLSX.writeFile(wb, filename);
 }
