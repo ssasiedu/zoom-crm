@@ -324,6 +324,22 @@ export interface OfficerPerformanceRow {
   payments: number;
 }
 
+/**
+ * An officer's whole month: ticket work and debtor work in one row.
+ * total_calls is every contact they handled — in-bound, outbound,
+ * WhatsApp, text and walk-in tickets, plus the debtor calls they logged.
+ */
+export interface OfficerCombinedRow extends OfficerPerformanceRow {
+  debtor_calls: number;
+  debtors_contacted: number;
+  debtor_payments: number;
+  debtor_collected: number;
+  /** tickets handled across every type of contact */
+  ticket_contacts: number;
+  total_calls: number;
+  total_received: number;
+}
+
 export interface AgingBuckets {
   d0_2: number;
   d3_7: number;
@@ -702,14 +718,56 @@ export interface AiSuggestion {
 /* ---------- Tickets and debtor calls together ---------- */
 export interface CombinedTotals {
   ticket_outbound_calls: number;
+  ticket_inbound_calls: number;
   ticket_calls: number;
   debtor_calls: number;
+  debtor_customers_called: number;
+  inbound_calls_total: number;
   outbound_calls_total: number;
   calls_total: number;
   ticket_payments: number;
+  /** tickets that carried a payment */
+  ticket_payment_count: number;
   debtor_collected: number;
   payments_total: number;
+  /** debtor calls that collected money */
   debtor_payments_count: number;
+  /** distinct debtors who paid, however many instalments they paid in */
+  debtors_paid: number;
+}
+
+/** What the outbound calls of a region were made of */
+export interface OutboundByRegionRow {
+  region: string;
+  sort_order: number;
+  ticket_outbound: number;
+  debtor_calls: number;
+  debtor_customers: number;
+  total_outbound: number;
+}
+
+/** Payments per region per payment status, debtor money under Receivables */
+export interface PaymentStatusByRegionRow {
+  region: string;
+  payment_status: string;
+  ticket_count: number;
+  ticket_total: number;
+  debtor_count: number;
+  debtor_total: number;
+  count: number;
+  total: number;
+}
+
+/** Money recovered from debtors, per region */
+export interface DebtorMoneyByRegionRow {
+  region: string;
+  sort_order: number;
+  calls: number;
+  customers_called: number;
+  payments: number;
+  customers_paid: number;
+  collected: number;
+  pay_rate: number;
 }
 
 export interface ContactMixItem {

@@ -6,10 +6,14 @@ import type {
   PaymentLine,
   StaffWorkloadRow,
   StaffWorkloadTrendRow,
+  DebtorMoneyByRegionRow,
   IssueByRegionRow,
   Kpis,
+  OfficerCombinedRow,
   OfficerPerformanceRow,
+  OutboundByRegionRow,
   PaymentRow,
+  PaymentStatusByRegionRow,
   ReportFilters,
   SlaAgingReport,
   StatusByRegionRow,
@@ -60,8 +64,10 @@ const groupRow = (r: TurnaroundGroupRow): TurnaroundGroupRow => ({
 });
 
 const COMBINED_KEYS: (keyof CombinedTotals)[] = [
-  'ticket_outbound_calls', 'ticket_calls', 'debtor_calls', 'outbound_calls_total',
-  'calls_total', 'ticket_payments', 'debtor_collected', 'payments_total', 'debtor_payments_count',
+  'ticket_outbound_calls', 'ticket_inbound_calls', 'ticket_calls', 'debtor_calls',
+  'debtor_customers_called', 'inbound_calls_total', 'outbound_calls_total',
+  'calls_total', 'ticket_payments', 'ticket_payment_count', 'debtor_collected',
+  'payments_total', 'debtor_payments_count', 'debtors_paid',
 ];
 
 const WORKLOAD_KEYS: (keyof StaffWorkloadRow)[] = [
@@ -69,6 +75,28 @@ const WORKLOAD_KEYS: (keyof StaffWorkloadRow)[] = [
   'debtor_calls', 'debtors_contacted', 'total_calls', 'ticket_payments', 'debtor_collected',
   'debtor_payments', 'total_collected',
 ];
+
+/* Declared outside the service object so that officerPerformanceCombined can
+   reuse them: referring to a sibling method through `this` while the object's
+   own type is still being inferred loses the return types. */
+async function fetchOfficerPerformance(f: ReportFilters): Promise<OfficerPerformanceRow[]> {
+  const rows = await rpc<OfficerPerformanceRow[]>('report_officer_performance', params(f));
+  return (rows ?? []).map((r) => ({
+    ...num(r, ['total_assigned', 'resolved', 'active', 'resolution_rate', 'overdue', 'payments']),
+    avg_resolution_hours: r.avg_resolution_hours === null ? null : toNumber(r.avg_resolution_hours),
+    by_contact_type: Object.fromEntries(
+      Object.entries(r.by_contact_type ?? {}).map(([k, v]) => [k, toNumber(v)]),
+    ),
+  }));
+}
+
+async function fetchStaffWorkload(f: ReportFilters): Promise<StaffWorkloadRow[]> {
+  const rows = (await rpc<StaffWorkloadRow[]>('report_staff_workload', params(f))) ?? [];
+  return rows.map((r) => ({
+    ...num(r, WORKLOAD_KEYS),
+    avg_resolution_minutes: r.avg_resolution_minutes === null ? null : toNumber(r.avg_resolution_minutes),
+  }));
+}
 
 export const reportsService = {
   /** Tickets and debtor calls together: calls made and money taken in */
@@ -94,13 +122,7 @@ export const reportsService = {
   },
 
   /** One row per officer covering both ticket work and debtor calls */
-  async staffWorkload(f: ReportFilters): Promise<StaffWorkloadRow[]> {
-    const rows = (await rpc<StaffWorkloadRow[]>('report_staff_workload', params(f))) ?? [];
-    return rows.map((r) => ({
-      ...num(r, WORKLOAD_KEYS),
-      avg_resolution_minutes: r.avg_resolution_minutes === null ? null : toNumber(r.avg_resolution_minutes),
-    }));
-  },
+  staffWorkload: fetchStaffWorkload,
 
   async staffWorkloadTrend(f: ReportFilters, bucket: 'day' | 'week' | 'month'): Promise<StaffWorkloadTrendRow[]> {
     const { p_issue_type: _i, p_contact_type: _c, ...rest } = params(f);
@@ -158,15 +180,84 @@ export const reportsService = {
     return (rows ?? []).map((r) => num(r, ['total', 'count']));
   },
 
-  async officerPerformance(f: ReportFilters): Promise<OfficerPerformanceRow[]> {
-    const rows = await rpc<OfficerPerformanceRow[]>('report_officer_performance', params(f));
-    return (rows ?? []).map((r) => ({
-      ...num(r, ['total_assigned', 'resolved', 'active', 'resolution_rate', 'overdue', 'payments']),
-      avg_resolution_hours: r.avg_resolution_hours === null ? null : toNumber(r.avg_resolution_hours),
-      by_contact_type: Object.fromEntries(
-        Object.entries(r.by_contact_type ?? {}).map(([k, v]) => [k, toNumber(v)]),
-      ),
-    }));
+  /** What each region's outbound calls were made of: tickets vs debtor calls */
+  async outboundByRegion(f: ReportFilters): Promise<OutboundByRegionRow[]> {
+    const rows = (await rpc<OutboundByRegionRow[]>('report_outbound_by_region', params(f))) ?? [];
+    return rows.map((r) => num(r, ['ticket_outbound', 'debtor_calls', 'debtor_customers', 'total_outbound']));
+  },
+
+  /** Payments per region per payment status; debtor money counts as Receivables */
+  async paymentStatusByRegion(f: ReportFilters): Promise<PaymentStatusByRegionRow[]> {
+    const rows = (await rpc<PaymentStatusByRegionRow[]>('report_payment_status_by_region', params(f))) ?? [];
+    return rows.map((r) => num(r, ['ticket_count', 'ticket_total', 'debtor_count', 'debtor_total', 'count', 'total']));
+  },
+
+  /** Money recovered from debtors, per region */
+  async debtorMoneyByRegion(f: ReportFilters): Promise<DebtorMoneyByRegionRow[]> {
+    const { p_issue_type: _i, p_contact_type: _c, ...rest } = params(f);
+    const rows = (await rpc<DebtorMoneyByRegionRow[]>('report_debtor_money_by_region', rest)) ?? [];
+    return rows.map((r) => num(r, ['calls', 'customers_called', 'payments', 'customers_paid', 'collected', 'pay_rate']));
+  },
+
+  officerPerformance: fetchOfficerPerformance,
+
+  /**
+   * Officer performance with the debtor side of the job folded in.
+   *
+   * Officer performance counts tickets; staff workload counts debtor
+   * calls and collections. Managers want one row per officer covering
+   * both, with a total-calls figure that adds the debtor calls to the
+   * ticket contacts (in-bound, outbound, WhatsApp, text, walk-in).
+   */
+  async officerPerformanceCombined(f: ReportFilters): Promise<OfficerCombinedRow[]> {
+    const [perf, work] = await Promise.all([fetchOfficerPerformance(f), fetchStaffWorkload(f)]);
+    const byId = new Map(work.map((w) => [w.officer_id, w]));
+    const seen = new Set<string>();
+    const merge = (p: OfficerPerformanceRow): OfficerCombinedRow => {
+      const w = byId.get(p.officer_id);
+      seen.add(p.officer_id);
+      const ticketContacts = Object.values(p.by_contact_type).reduce((a, b) => a + b, 0);
+      const debtorCalls = w?.debtor_calls ?? 0;
+      const debtorCollected = w?.debtor_collected ?? 0;
+      return {
+        ...p,
+        debtor_calls: debtorCalls,
+        debtors_contacted: w?.debtors_contacted ?? 0,
+        debtor_payments: w?.debtor_payments ?? 0,
+        debtor_collected: debtorCollected,
+        ticket_contacts: ticketContacts,
+        total_calls: ticketContacts + debtorCalls,
+        total_received: p.payments + debtorCollected,
+      };
+    };
+    const rows = perf.map(merge);
+    /* An officer who only called debtors this month has no ticket row at
+       all, so they would otherwise be missing from the report. */
+    for (const w of work) {
+      if (seen.has(w.officer_id)) continue;
+      rows.push({
+        officer_id: w.officer_id,
+        officer_name: w.officer_name,
+        region: w.region,
+        is_active: w.is_active,
+        by_contact_type: {},
+        total_assigned: 0,
+        resolved: 0,
+        active: 0,
+        resolution_rate: 0,
+        avg_resolution_hours: null,
+        overdue: 0,
+        payments: 0,
+        debtor_calls: w.debtor_calls,
+        debtors_contacted: w.debtors_contacted,
+        debtor_payments: w.debtor_payments,
+        debtor_collected: w.debtor_collected,
+        ticket_contacts: 0,
+        total_calls: w.debtor_calls,
+        total_received: w.debtor_collected,
+      });
+    }
+    return rows.sort((a, b) => b.total_calls - a.total_calls || a.officer_name.localeCompare(b.officer_name));
   },
 
   /** Turnaround (raised → resolved) and waiting time (raised → first worked on) */

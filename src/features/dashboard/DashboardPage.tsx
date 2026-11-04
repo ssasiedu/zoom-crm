@@ -28,6 +28,7 @@ import {
   HandCoins,
   Percent,
   PhoneCall,
+  PhoneIncoming,
   PlayCircle,
   RefreshCw,
   Timer,
@@ -235,6 +236,14 @@ export default function DashboardPage() {
         <StatCard label="Unassigned" value={formatNumber(k?.unassigned)} icon={<UserX />} tone="violet" loading={d.kpis.isLoading} onClick={() => drill({ officer: 'unassigned', status: 'Open,In-Progress' })} />
         <StatCard label="Resolution rate" value={formatPercent(k?.resolution_rate)} icon={<Percent />} tone="brand" loading={d.kpis.isLoading} hint={`SLA met on ${formatPercent(k?.sla_compliance)} of resolved`} />
         <StatCard label="Avg. resolution time" value={formatHours(k?.avg_resolution_hours)} icon={<Clock />} tone="brand" loading={d.kpis.isLoading} hint="Opened → completed" />
+        <StatCard
+          label="Inbound calls"
+          value={formatNumber(cb?.ticket_inbound_calls)}
+          icon={<PhoneIncoming />}
+          tone="violet"
+          loading={d.combined.isLoading}
+          hint="Calls that came in to the team"
+        />
         <StatCard
           label="Outbound calls"
           value={formatNumber(cb?.outbound_calls_total)}
