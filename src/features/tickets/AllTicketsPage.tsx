@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import type { RowSelectionState, VisibilityState } from '@tanstack/react-table';
-import { ArrowRightLeft, ChevronDown, ClipboardList, Download, FileSpreadsheet, FileText, Plus, Upload, UserCheck, X } from 'lucide-react';
+import { ArrowRightLeft, ChevronDown, ClipboardList, Download, FileSpreadsheet, FileText, Plus, Send, Upload, UserCheck, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { useBranding } from '@/hooks/useSettings';
@@ -13,6 +13,7 @@ import { Button, Card, DataTable, EmptyState, ErrorState, Menu, PageHeader } fro
 import { formatNumber } from '@/utils/format';
 import { AssignDialog } from './AssignDialog';
 import { BulkStatusDialog } from './BulkStatusDialog';
+import { ForwardDialog } from './ForwardDialog';
 import { ImportDialog } from './ImportDialog';
 import { SavedViewsMenu } from './SavedViewsMenu';
 import { DEFAULT_HIDDEN_COLUMNS, ticketColumns } from './ticketColumns';
@@ -41,6 +42,7 @@ export default function AllTicketsPage() {
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [assignOpen, setAssignOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
+  const [forwardOpen, setForwardOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -186,6 +188,11 @@ export default function AllTicketsPage() {
                       Assign
                     </Button>
                   )}
+                  {can('tickets:forward') && (
+                    <Button size="xs" variant="secondary" leftIcon={<Send className="size-3.5" />} onClick={() => setForwardOpen(true)}>
+                      Forward to district
+                    </Button>
+                  )}
                   {can('tickets:close') && (
                     <Button size="xs" variant="secondary" leftIcon={<ArrowRightLeft className="size-3.5" />} onClick={() => setStatusOpen(true)}>
                       Change status
@@ -226,6 +233,13 @@ export default function AllTicketsPage() {
       <AssignDialog
         open={assignOpen}
         onClose={() => setAssignOpen(false)}
+        ticketIds={selected.map((s) => s.id)}
+        region={bulkRegion}
+        onDone={clearSelection}
+      />
+      <ForwardDialog
+        open={forwardOpen}
+        onClose={() => setForwardOpen(false)}
         ticketIds={selected.map((s) => s.id)}
         region={bulkRegion}
         onDone={clearSelection}

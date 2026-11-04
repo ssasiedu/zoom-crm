@@ -1,4 +1,4 @@
-import type { Priority, Role, TicketStatus } from '@/types';
+import type { OfficerKind, Priority, Role, TicketStatus } from '@/types';
 
 export const APP_NAME = 'Zoomlion CRM';
 export const APP_TAGLINE = 'Service & Debt Management';
@@ -13,6 +13,8 @@ export const ROLES: { value: Role; label: string; description: string }[] = [
   { value: 'supervisor', label: 'Supervisor', description: 'All tickets, assignment, closing and reports' },
   { value: 'agent', label: 'Agent', description: 'Creates and assigns tickets' },
   { value: 'dm_officer', label: 'DM Officer', description: 'Works tickets assigned to them' },
+  { value: 'regional_manager', label: 'Regional Manager', description: 'Sees everything forwarded inside their region' },
+  { value: 'district_officer', label: 'District Operation Officer', description: 'Field officer; sees only tickets forwarded to them' },
 ];
 
 export const ROLE_LABEL: Record<Role, string> = {
@@ -20,7 +22,21 @@ export const ROLE_LABEL: Record<Role, string> = {
   supervisor: 'Supervisor',
   agent: 'Agent',
   dm_officer: 'DM Officer',
+  regional_manager: 'Regional Manager',
+  district_officer: 'District Operation Officer',
 };
+
+export const OFFICER_KIND_LABEL: Record<OfficerKind, string> = {
+  dm_officer: 'DM Officer',
+  district_officer: 'District Operation Officer',
+  regional_manager: 'Regional Manager',
+};
+
+export const OFFICER_KINDS: { value: OfficerKind; label: string; description: string }[] = [
+  { value: 'dm_officer', label: 'DM Officer', description: 'Takes calls, works tickets and calls debtors' },
+  { value: 'district_officer', label: 'District Operation Officer', description: 'Does the field work in one district' },
+  { value: 'regional_manager', label: 'Regional Manager', description: 'Oversees the district officers of a region' },
+];
 
 /** Fallback when issue_types.requires_payment is unavailable */
 export const PAYMENT_ISSUE_TYPES = ['PAYMENT ISSUE', 'PAYMENT ASSIST', 'UNREFLECTED PAYMENTS'];
@@ -33,6 +49,10 @@ export const FIELD_LABELS: Record<string, string> = {
   client_id: 'CUSTOMER ID',
   contact_number: 'CONTACT NUMBER',
   contact_type: 'TYPE OF CONTACT',
+  district: 'DISTRICT',
+  district_officer_name: 'DISTRICT OFFICER',
+  forwarded_at: 'FORWARDED',
+  field_notes: 'FIELD NOTES',
   community: 'COMMUNITY',
   description: 'DESCRIPTION',
   issue_type: 'ISSUE TYPE',

@@ -5,7 +5,7 @@ import { ROLE_LABEL } from '@/lib/constants';
 import { cn } from '@/utils/cn';
 import { Avatar } from '@/components/ui';
 import { Logo } from './Logo';
-import { NAV_ITEMS } from './nav';
+import { NAV_ITEMS, navVisible } from './nav';
 
 export function Sidebar({
   collapsed,
@@ -19,9 +19,7 @@ export function Sidebar({
   onCloseMobile: () => void;
 }) {
   const { can, officerId, profile, role } = useAuth();
-  const items = NAV_ITEMS.filter((i) =>
-    i.officerOnly ? Boolean(officerId) || role === 'dm_officer' : i.permission ? can(i.permission) : true,
-  );
+  const items = NAV_ITEMS.filter((i) => navVisible(i, { role, officerId, can }));
 
   const content = (isMobile: boolean) => {
     const narrow = collapsed && !isMobile;

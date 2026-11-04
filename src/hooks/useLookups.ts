@@ -15,6 +15,7 @@ const EMPTY: Lookups = {
   customer_types: [],
   providers: [],
   debtor_feedback: [],
+  districts: [],
 };
 
 /** All lookup tables (including inactive values) */
@@ -37,8 +38,15 @@ export function useLookups() {
     customer_types: data.customer_types.filter((x) => x.is_active),
     providers: data.providers.filter((x) => x.is_active),
     debtor_feedback: data.debtor_feedback.filter((x) => x.is_active),
+    districts: data.districts.filter((x) => x.is_active),
   } satisfies Lookups;
   return { ...query, lookups: data, active };
+}
+
+/** The active districts of one region, in their configured order */
+export function districtsOf(lookups: Lookups, region: string | null | undefined) {
+  if (!region) return [];
+  return lookups.districts.filter((d) => d.is_active && d.region === region);
 }
 
 export function useOfficers() {

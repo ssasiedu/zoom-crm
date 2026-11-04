@@ -31,7 +31,7 @@ Local env: `cp .env.example .env.local` and set `VITE_SUPABASE_URL` / `VITE_SUPA
 
 ### Authorization lives in two places, deliberately
 
-Every permission rule is enforced twice: in Postgres (RLS policies + triggers in `supabase/migrations/`) and mirrored in `src/lib/permissions.ts` (`ROLE_PERMISSIONS`, `hasPermission`) purely to control what the UI shows. **The database is the real authority** — if you change a permission, the client-side check in `permissions.ts` is cosmetic only and must match the migration, not replace it. Four roles: `admin`, `supervisor`, `agent`, `dm_officer`. `homePathFor(role)` sends `dm_officer` to `/my-tickets` and everyone else to `/dashboard`.
+Every permission rule is enforced twice: in Postgres (RLS policies + triggers in `supabase/migrations/`) and mirrored in `src/lib/permissions.ts` (`ROLE_PERMISSIONS`, `hasPermission`) purely to control what the UI shows. **The database is the real authority** — if you change a permission, the client-side check in `permissions.ts` is cosmetic only and must match the migration, not replace it. Six roles: `admin`, `supervisor`, `agent`, `dm_officer`, plus the field layer `regional_manager` and `district_officer`. `homePathFor(role)` sends `dm_officer` to `/my-tickets`, `district_officer` to `/field-work`, `regional_manager` to `/forwarded` and everyone else to `/dashboard`.
 
 ### All Supabase access goes through `src/services/*`
 
@@ -54,6 +54,11 @@ Read `supabase/migrations/` in order to understand the actual business rules bef
 - Secrets (SMS, AI keys) live in `app_settings` rows flagged `is_secret`, readable only by admins and by edge functions using the service role.
 - Attachments live in the private `ticket-attachments` Storage bucket under `<ticket_id>/…`, served via short-lived signed URLs, access following ticket visibility.
 - A ticket is overdue when `DUE DATE` is before today in `Africa/Accra` time and status is Open or In-Progress — this timezone matters for any date-range filter or report logic (`src/utils/dateRange.ts`).
+- The field layer: `districts` (261 Ghanaian districts, a lookup like the rest), `officers.kind` (`dm_officer` | `district_officer` | `regional_manager`), `officers.district` and `officers.manager_officer_id`. A district officer's **district decides their region** — `officers_before_write` overwrites whatever region was passed. Tickets gain `district`, `district_officer_id`, `forwarded_at/by`, `forward_note` and `field_notes`.
+- Forwarding goes through `forward_ticket(ticket, officer, note)`, which checks the forwarder is allowed to; `tickets_forward_after_change` then writes the audit row, notifies the district officer **and** their regional manager, and queues the `ticket_forwarded` SMS to both phones via `queue_officer_sms`. Forwarding deliberately **does not change the status** — that is what lets the capturing agent forward at all, since agents may not move a ticket's status.
+- `tickets_bz_autoassign` gives a new ticket to the officer who captured it; `tickets_bz_field_guard` restricts what the two new roles may change. Both are separate triggers named `bz…` so they fire after the main `tickets_before_insert`/`tickets_before_update`, which are left intact.
+- `call_direction(contact_type)` (in `20261104000001`) is the single place that decides whether a type of contact was a call and which way it faced. It matches loosely (`%CALL%`, `%OUT%`) because these are lookup rows an admin can rename — don't compare against the literal `'IN-BOUND CALL'` / `'OUTBOUND CALL'` anywhere new.
+- Adding a value to the `app_role` enum needs its own migration file: Postgres will not let a transaction use an enum value it added itself (see `20261104000002` vs `20261104000003`).
 
 If you change ticket behavior, check whether the migration files or the client code (or both) need updating — most "business logic" bugs are actually in the SQL triggers/RLS, not the React code.
 

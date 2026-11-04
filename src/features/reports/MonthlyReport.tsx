@@ -30,10 +30,11 @@ import {
   DEBTOR_MONEY_COLUMNS,
   OUTBOUND_REGION_COLUMNS,
 } from './reports';
+import { ForwardedWorkTables, forwardedSheets } from './ForwardedWork';
 import { toPdfSheets } from './pdfSheets';
 
 async function loadMonthly(f: ReportFilters) {
-  const [kpis, combined, regions, contact, issues, outbound, paymentStatus, debtorMoney, officers] = await Promise.all([
+  const [kpis, combined, regions, contact, issues, outbound, paymentStatus, debtorMoney, officers, forwarded] = await Promise.all([
     reportsService.kpis(f),
     reportsService.combined(f),
     reportsService.statusByRegion(f),
@@ -43,8 +44,9 @@ async function loadMonthly(f: ReportFilters) {
     reportsService.paymentStatusByRegion(f),
     reportsService.debtorMoneyByRegion(f),
     reportsService.officerPerformanceCombined(f),
+    reportsService.forwarded(f),
   ]);
-  return { kpis, combined, regions, contact, issues, outbound, paymentStatus, debtorMoney, officers };
+  return { kpis, combined, regions, contact, issues, outbound, paymentStatus, debtorMoney, officers, forwarded };
 }
 
 type MonthlyData = Awaited<ReturnType<typeof loadMonthly>>;
@@ -93,6 +95,10 @@ export function MonthlyReport({ baseFilters }: { baseFilters: ReportFilters }) {
         ['Ticket payments', formatGHS(c.ticket_payments, { plain: true })],
         ['Received from debtors', formatGHS(c.debtor_collected, { plain: true })],
         ['Total received', formatGHS(c.payments_total, { plain: true })],
+        ['Forwarded to the districts', d.forwarded.totals.total],
+        ['— still open in the field', d.forwarded.totals.open + d.forwarded.totals.in_progress],
+        ['— finished in the field', d.forwarded.totals.resolved + d.forwarded.totals.closed],
+        ['— overdue in the field', d.forwarded.totals.overdue],
       ],
     };
     const breakdown = (name: string, rows: { label: string; count: number }[]): ExportSheet => ({
@@ -116,6 +122,7 @@ export function MonthlyReport({ baseFilters }: { baseFilters: ReportFilters }) {
       debtorMoneySheet(d.debtorMoney),
       ...payments.slice(0, 1),
       officerSheet(d.officers),
+      ...(d.forwarded.totals.total > 0 ? forwardedSheets(d.forwarded) : []),
       ...sla.slice(0, 1),
     ];
   };
@@ -348,6 +355,18 @@ function MonthlySections({
           rowKey={(r) => r.officer_id}
         />
       </Card>
+
+      {d.forwarded.totals.total > 0 && (
+        <>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <StatCard label="Forwarded to districts" value={formatNumber(d.forwarded.totals.total)} tone="violet" />
+            <StatCard label="Still in the field" value={formatNumber(d.forwarded.totals.open + d.forwarded.totals.in_progress)} tone="blue" />
+            <StatCard label="Finished in the field" value={formatNumber(d.forwarded.totals.resolved + d.forwarded.totals.closed)} tone="green" />
+            <StatCard label="Overdue in the field" value={formatNumber(d.forwarded.totals.overdue)} tone="red" />
+          </div>
+          <ForwardedWorkTables d={d.forwarded} />
+        </>
+      )}
     </>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
-import { MessageCircle, MessageSquare, Pencil, Phone, Printer, Trash2, UserCheck } from 'lucide-react';
+import { MapPin, MessageCircle, MessageSquare, Pencil, Phone, Printer, Send, Trash2, UserCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { useInvalidateTickets } from '@/hooks/useTickets';
@@ -31,6 +31,7 @@ import { AssignDialog } from './AssignDialog';
 import { AttachmentsPanel } from './AttachmentsPanel';
 import { CommentsPanel } from './CommentsPanel';
 import { EditTicketDrawer } from './EditTicketModal';
+import { ForwardDialog } from './ForwardDialog';
 import { WorkPanel } from './WorkPanel';
 
 const L = FIELD_LABELS;
@@ -100,11 +101,12 @@ export function ContactActions({ ticket, size = 'sm' }: { ticket: TicketRow; siz
 }
 
 export function TicketDetail({ ticket, variant = 'page' }: { ticket: TicketRow; variant?: 'page' | 'drawer' }) {
-  const { can, role, user } = useAuth();
+  const { can, role, user, officerId } = useAuth();
   const navigate = useNavigate();
   const invalidate = useInvalidateTickets();
   const [tab, setTab] = useState<'activity' | 'comments' | 'files' | 'sms' | 'assist'>('activity');
   const [assignOpen, setAssignOpen] = useState(false);
+  const [forwardOpen, setForwardOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -113,6 +115,10 @@ export function TicketDetail({ ticket, variant = 'page' }: { ticket: TicketRow; 
   const canEdit = can('tickets:editCore') || isOwnAgentTicket;
   const canAssign = can('tickets:assign') && (role !== 'agent' || isOwnAgentTicket);
   const isDone = ticket.status === 'Resolved' || ticket.status === 'Closed';
+  /* Only the officer holding the ticket, or a manager, can send it down. */
+  const canForward =
+    can('tickets:forward') &&
+    (can('tickets:editCore') || isOwnAgentTicket || ticket.assigned_officer_id === officerId);
 
   const header = (
     <div className="flex flex-wrap items-center gap-2">
@@ -131,6 +137,11 @@ export function TicketDetail({ ticket, variant = 'page' }: { ticket: TicketRow; 
       {canAssign && !isDone && (
         <Button variant="secondary" size="sm" leftIcon={<UserCheck className="size-4" />} onClick={() => setAssignOpen(true)}>
           {ticket.assigned_officer_id ? 'Reassign' : 'Assign'}
+        </Button>
+      )}
+      {canForward && !isDone && (
+        <Button variant="secondary" size="sm" leftIcon={<Send className="size-4" />} onClick={() => setForwardOpen(true)}>
+          {ticket.district_officer_id ? 'Forward again' : 'Forward to district'}
         </Button>
       )}
       {canEdit && ticket.status !== 'Closed' && (
@@ -234,6 +245,45 @@ export function TicketDetail({ ticket, variant = 'page' }: { ticket: TicketRow; 
             </dl>
           </Card>
 
+          {ticket.district_officer_id && (
+            <Card>
+              <CardHeader
+                title="Field work"
+                description={`Forwarded ${formatDateTime(ticket.forwarded_at)}`}
+              />
+              <dl className="grid gap-x-6 gap-y-4 p-4 sm:grid-cols-2 sm:p-5">
+                <Item label="DISTRICT">
+                  <span className="inline-flex items-center gap-1.5">
+                    <MapPin className="size-3.5 text-slate-400" />
+                    {ticket.district ?? '—'}
+                  </span>
+                </Item>
+                <Item label="DISTRICT OPERATION OFFICER">
+                  {ticket.district_officer_name ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Avatar name={ticket.district_officer_name} size="xs" />
+                      {ticket.district_officer_name}
+                    </span>
+                  ) : (
+                    '—'
+                  )}
+                </Item>
+                <Item label="REGIONAL MANAGER">{ticket.district_officer_manager ?? '—'}</Item>
+                <Item label="FORWARDED BY">{ticket.forwarded_by ? 'see history' : '—'}</Item>
+                {ticket.forward_note && (
+                  <Item label="NOTE TO THE DISTRICT" wide>
+                    <span className="whitespace-pre-wrap">{ticket.forward_note}</span>
+                  </Item>
+                )}
+                {ticket.field_notes && (
+                  <Item label="FIELD NOTES" wide>
+                    <span className="whitespace-pre-wrap">{ticket.field_notes}</span>
+                  </Item>
+                )}
+              </dl>
+            </Card>
+          )}
+
           <Card className="no-print">
             <CardHeader title="Progress" description="Update status, resolution and payment details." />
             <div className="p-4 sm:p-5">
@@ -277,6 +327,13 @@ export function TicketDetail({ ticket, variant = 'page' }: { ticket: TicketRow; 
         ticketIds={[ticket.id]}
         currentOfficerId={ticket.assigned_officer_id}
         region={ticket.region}
+      />
+      <ForwardDialog
+        open={forwardOpen}
+        onClose={() => setForwardOpen(false)}
+        ticketIds={[ticket.id]}
+        region={ticket.region}
+        currentOfficerId={ticket.district_officer_id}
       />
       {canEdit && <EditTicketDrawer ticket={ticket} open={editOpen} onClose={() => setEditOpen(false)} />}
       <ConfirmDialog

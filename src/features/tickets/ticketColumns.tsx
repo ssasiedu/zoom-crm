@@ -92,6 +92,25 @@ export const ticketColumns: ColumnDef<TicketRow, unknown>[] = [
         <span className="text-xs font-medium text-amber-700 dark:text-amber-400">Unassigned</span>
       ),
   }),
+  col('district', { cell: ({ row }) => <span className="whitespace-nowrap">{row.original.district ?? '—'}</span> }),
+  col('district_officer_name', {
+    enableSorting: false,
+    cell: ({ row }) =>
+      row.original.district_officer_name ? (
+        <span className="flex flex-col whitespace-nowrap">
+          <span className="flex items-center gap-1.5">
+            <Avatar name={row.original.district_officer_name} size="xs" />
+            {row.original.district_officer_name}
+          </span>
+          {row.original.district_officer_manager && (
+            <span className="text-xs text-slate-500">{row.original.district_officer_manager}</span>
+          )}
+        </span>
+      ) : (
+        <span className="text-slate-400">not forwarded</span>
+      ),
+  }),
+  col('forwarded_at', { cell: ({ row }) => <span className="whitespace-nowrap">{formatDate(row.original.forwarded_at)}</span> }),
   col('reason_for_open_status', {
     enableSorting: false,
     cell: ({ row }) => <span className="block max-w-48 truncate">{row.original.reason_for_open_status ?? '—'}</span>,

@@ -1,4 +1,12 @@
-export type Role = 'admin' | 'supervisor' | 'agent' | 'dm_officer';
+export type Role = 'admin' | 'supervisor' | 'agent' | 'dm_officer' | 'regional_manager' | 'district_officer';
+
+/**
+ * What kind of work an officer record stands for.
+ *   dm_officer       — the desk: takes calls, works tickets, calls debtors
+ *   district_officer — the District Operation Officer in the field
+ *   regional_manager — owns a region and the officers in it
+ */
+export type OfficerKind = 'dm_officer' | 'district_officer' | 'regional_manager';
 export type TicketStatus = 'Open' | 'In-Progress' | 'Resolved' | 'Closed';
 export type Priority = 'Low' | 'Medium' | 'High' | 'Urgent';
 
@@ -23,8 +31,111 @@ export interface Officer {
   phone: string | null;
   email: string | null;
   is_active: boolean;
+  kind: OfficerKind;
+  /** set for district officers only; it decides their region */
+  district: string | null;
+  /** the regional manager they report to */
+  manager_officer_id: string | null;
   created_at: string;
   updated_at: string;
+}
+
+/** A district of Ghana. Like the other lookups, but tied to a region. */
+export interface District extends LookupItem {
+  region: string;
+}
+
+/** A district officer as the forward dialog needs them */
+export interface DistrictOfficerOption {
+  id: string;
+  full_name: string;
+  district: string | null;
+  region: string | null;
+  phone: string | null;
+  is_active: boolean;
+  manager_id: string | null;
+  manager_name: string | null;
+  manager_phone: string | null;
+  active_tickets: number;
+}
+
+/** The region → districts → officers tree behind the loading screen */
+export interface RegionDistrictRow {
+  region: string;
+  sort_order: number;
+  managers: { id: string; full_name: string; phone: string | null; email: string | null; is_active: boolean }[];
+  districts: {
+    district: string;
+    sort_order: number;
+    is_active: boolean;
+    officers: {
+      id: string;
+      full_name: string;
+      phone: string | null;
+      email: string | null;
+      is_active: boolean;
+      manager_name: string | null;
+    }[];
+  }[];
+}
+
+export interface ForwardedTotals {
+  total: number;
+  open: number;
+  in_progress: number;
+  resolved: number;
+  closed: number;
+  overdue: number;
+  districts: number;
+  officers: number;
+}
+
+export interface ForwardedOfficerRow {
+  region: string;
+  district: string;
+  officer_name: string;
+  manager_name: string;
+  total: number;
+  open: number;
+  in_progress: number;
+  resolved: number;
+  closed: number;
+  overdue: number;
+  avg_field_hours: number | null;
+  resolution_rate: number;
+}
+
+export interface ForwardedDistrictRow {
+  region: string;
+  district: string;
+  total: number;
+  open: number;
+  in_progress: number;
+  resolved: number;
+  closed: number;
+  overdue: number;
+  officers: number;
+  resolution_rate: number;
+}
+
+export interface ForwardedRegionRow {
+  region: string;
+  total: number;
+  open: number;
+  in_progress: number;
+  resolved: number;
+  closed: number;
+  overdue: number;
+  districts: number;
+  officers: number;
+  resolution_rate: number;
+}
+
+export interface ForwardedReport {
+  totals: ForwardedTotals;
+  by_officer: ForwardedOfficerRow[];
+  by_district: ForwardedDistrictRow[];
+  by_region: ForwardedRegionRow[];
 }
 
 export interface OfficerWorkload {
@@ -66,9 +177,11 @@ export type LookupTable =
   | 'regions'
   | 'customer_types'
   | 'providers'
-  | 'debtor_feedback';
+  | 'debtor_feedback'
+  | 'districts';
 
 export interface Lookups {
+  districts: District[];
   contact_types: LookupItem[];
   issue_types: IssueTypeItem[];
   payment_sources: LookupItem[];
@@ -123,6 +236,15 @@ export interface Ticket {
   response_minutes: number | null;
   /** raised → completed, in minutes (turnaround time) */
   resolution_minutes: number | null;
+  /** the district the work is in; set when the ticket is forwarded */
+  district: string | null;
+  /** the District Operation Officer doing the field work */
+  district_officer_id: string | null;
+  forwarded_at: string | null;
+  forwarded_by: string | null;
+  forward_note: string | null;
+  /** what the field officer found on site */
+  field_notes: string | null;
 }
 
 /** Row from tickets_view */
@@ -130,6 +252,8 @@ export interface TicketRow extends Ticket {
   officer_name: string | null;
   officer_region: string | null;
   created_by_name: string | null;
+  district_officer_name: string | null;
+  district_officer_manager: string | null;
   is_overdue: boolean;
   days_to_due: number;
   /** null while the ticket is still open */

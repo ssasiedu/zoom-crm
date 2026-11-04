@@ -13,7 +13,7 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
-const ROLES = ['admin', 'supervisor', 'agent', 'dm_officer'];
+const ROLES = ['admin', 'supervisor', 'agent', 'dm_officer', 'regional_manager', 'district_officer'];
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {

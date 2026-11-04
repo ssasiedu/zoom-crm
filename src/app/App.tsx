@@ -19,6 +19,7 @@ const ResetPasswordPage = lazy(() => import('@/features/auth/ResetPasswordPage')
 const DashboardPage = lazy(() => import('@/features/dashboard/DashboardPage'));
 const MyTicketsPage = lazy(() => import('@/features/tickets/MyTicketsPage'));
 const AllTicketsPage = lazy(() => import('@/features/tickets/AllTicketsPage'));
+const ForwardedPage = lazy(() => import('@/features/tickets/ForwardedPage'));
 const NewTicketPage = lazy(() => import('@/features/tickets/NewTicketPage'));
 const TicketDetailPage = lazy(() => import('@/features/tickets/TicketDetailPage'));
 const ReportsPage = lazy(() => import('@/features/reports/ReportsPage'));
@@ -80,6 +81,8 @@ export function App() {
                   <Route index element={<HomeRedirect />} />
                   <Route path="dashboard" element={<Page permission="dashboard:view"><DashboardPage /></Page>} />
                   <Route path="my-tickets" element={<Page><MyTicketsPage /></Page>} />
+                  <Route path="field-work" element={<Page><MyTicketsPage mode="field" /></Page>} />
+                  <Route path="forwarded" element={<Page permission="tickets:forward"><ForwardedPage /></Page>} />
                   <Route path="tickets" element={<Page permission="tickets:list"><AllTicketsPage /></Page>} />
                   <Route path="tickets/new" element={<Page permission="tickets:create"><NewTicketPage /></Page>} />
                   <Route path="tickets/:id" element={<Page><TicketDetailPage /></Page>} />

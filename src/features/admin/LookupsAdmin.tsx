@@ -20,6 +20,7 @@ export const LOOKUP_LABELS: Record<LookupTable, { title: string; description: st
   customer_types: { title: 'CUSTOMER TYPE', description: 'Used by the monthly debtor list' },
   providers: { title: 'PROVIDER', description: 'Service providers on the debtor list' },
   debtor_feedback: { title: 'FEEDBACK', description: 'Outcomes officers can record on a debtor call' },
+  districts: { title: 'District', description: 'Managed under District officers, where each one is tied to a region' },
 };
 
 const TICKET_LOOKUPS: LookupTable[] = [

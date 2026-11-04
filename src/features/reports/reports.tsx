@@ -25,6 +25,7 @@ import type {
 import type { ExportSheet } from '@/utils/export';
 import { formatGHS, formatHours, formatMinutes, formatNumber, formatPercent } from '@/utils/format';
 import { ticketsUrl } from '@/features/tickets/ticketFilters';
+import { ForwardedWork, loadForwardedSheets } from './ForwardedWork';
 import { heat, ReportTable, sum, type ReportColumn } from './ReportTable';
 
 export interface ReportProps {
@@ -1343,6 +1344,13 @@ export const REPORTS: ReportDefinition[] = [
     description: 'Tickets and debtor calls per officer, with everything collected',
     load: loadStaffWorkloadSheets,
     Component: StaffWorkload,
+  },
+  {
+    key: 'forwarded',
+    title: 'Forwarded to the districts',
+    description: 'Work sent down to District Operation Officers, by region, district, officer and status',
+    load: loadForwardedSheets,
+    Component: ({ filters, ticketParams }) => <ForwardedWork filters={filters} ticketParams={ticketParams} />,
   },
   {
     key: 'sla-aging',

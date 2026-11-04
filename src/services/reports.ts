@@ -7,6 +7,7 @@ import type {
   StaffWorkloadRow,
   StaffWorkloadTrendRow,
   DebtorMoneyByRegionRow,
+  ForwardedReport,
   IssueByRegionRow,
   Kpis,
   OfficerCombinedRow,
@@ -258,6 +259,22 @@ export const reportsService = {
       });
     }
     return rows.sort((a, b) => b.total_calls - a.total_calls || a.officer_name.localeCompare(b.officer_name));
+  },
+
+  /** Work forwarded to the districts, by region, district, officer and status */
+  async forwarded(f: ReportFilters): Promise<ForwardedReport> {
+    const d = await rpc<ForwardedReport>('report_forwarded_tickets', params(f));
+    const counts = ['total', 'open', 'in_progress', 'resolved', 'closed', 'overdue'] as const;
+    return {
+      totals: num(d?.totals ?? { total: 0, open: 0, in_progress: 0, resolved: 0, closed: 0, overdue: 0, districts: 0, officers: 0 },
+        [...counts, 'districts', 'officers']),
+      by_officer: (d?.by_officer ?? []).map((r) => ({
+        ...num(r, [...counts, 'resolution_rate']),
+        avg_field_hours: r.avg_field_hours === null || r.avg_field_hours === undefined ? null : toNumber(r.avg_field_hours),
+      })),
+      by_district: (d?.by_district ?? []).map((r) => num(r, [...counts, 'officers', 'resolution_rate'])),
+      by_region: (d?.by_region ?? []).map((r) => num(r, [...counts, 'districts', 'officers', 'resolution_rate'])),
+    };
   },
 
   /** Turnaround (raised → resolved) and waiting time (raised → first worked on) */
