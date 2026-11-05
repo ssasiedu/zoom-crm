@@ -19,6 +19,7 @@ import {
   Input,
   Modal,
   Select,
+  type SelectOption,
   Switch,
   TableSkeleton,
   Textarea,
@@ -60,12 +61,27 @@ function OfficerDialog({
     enabled: open && kind === 'district_officer',
   });
 
-  const districtsForRegion = useMemo(
-    () => active.districts.filter((d) => !region || d.region === region),
-    [active.districts, region],
-  );
   /* A district officer's region follows their district, so show it rather than ask. */
   const impliedRegion = district ? active.districts.find((d) => d.name === district)?.region ?? '' : '';
+
+  const regionOptions = useMemo<SelectOption[]>(
+    () => active.regions.map((r) => ({ value: r.name, label: r.name })),
+    [active.regions],
+  );
+  const districtOptions = useMemo<SelectOption[]>(
+    () =>
+      active.districts
+        .filter((d) => !region || d.region === region)
+        .map((d) => ({ value: d.name, label: region ? d.name : `${d.name} — ${d.region}` })),
+    [active.districts, region],
+  );
+  const managerOptions = useMemo<SelectOption[]>(
+    () =>
+      (managers.data ?? [])
+        .filter((m) => !impliedRegion || m.region === impliedRegion)
+        .map((m) => ({ value: m.id, label: `${m.full_name} — ${m.region ?? 'no region'}` })),
+    [managers.data, impliedRegion],
+  );
 
   const save = useMutation({
     mutationFn: async () => {
@@ -141,14 +157,13 @@ function OfficerDialog({
 
         {kind === 'regional_manager' ? (
           <Field label="Region" htmlFor="o-region" className="sm:col-span-2">
-            <Select id="o-region" value={region} onChange={(e) => setRegion(e.target.value)}>
-              <option value="">Choose a region…</option>
-              {active.regions.map((r) => (
-                <option key={r.id} value={r.name}>
-                  {r.name}
-                </option>
-              ))}
-            </Select>
+            <Select
+              id="o-region"
+              value={region}
+              onChange={(e) => setRegion(e.target.value)}
+              placeholder="Choose a region…"
+              options={regionOptions}
+            />
           </Field>
         ) : (
           <>
@@ -160,36 +175,27 @@ function OfficerDialog({
                   setRegion(e.target.value);
                   setDistrict('');
                 }}
-              >
-                <option value="">All regions</option>
-                {active.regions.map((r) => (
-                  <option key={r.id} value={r.name}>
-                    {r.name}
-                  </option>
-                ))}
-              </Select>
+                placeholder="All regions"
+                options={regionOptions}
+              />
             </Field>
             <Field label="District" htmlFor="o-district" hint={impliedRegion ? `Region: ${impliedRegion}` : undefined}>
-              <Select id="o-district" value={district} onChange={(e) => setDistrict(e.target.value)}>
-                <option value="">Choose a district…</option>
-                {districtsForRegion.map((d) => (
-                  <option key={d.id} value={d.name}>
-                    {d.name}
-                  </option>
-                ))}
-              </Select>
+              <Select
+                id="o-district"
+                value={district}
+                onChange={(e) => setDistrict(e.target.value)}
+                placeholder={districtOptions.length === 0 ? 'No districts set up yet' : 'Choose a district…'}
+                options={districtOptions}
+              />
             </Field>
             <Field label="Regional manager" htmlFor="o-manager" className="sm:col-span-2" hint="Who is alerted alongside them">
-              <Select id="o-manager" value={manager} onChange={(e) => setManager(e.target.value)}>
-                <option value="">No manager yet</option>
-                {(managers.data ?? [])
-                  .filter((m) => !impliedRegion || m.region === impliedRegion)
-                  .map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.full_name} — {m.region}
-                    </option>
-                  ))}
-              </Select>
+              <Select
+                id="o-manager"
+                value={manager}
+                onChange={(e) => setManager(e.target.value)}
+                placeholder="No manager yet"
+                options={managerOptions}
+              />
             </Field>
           </>
         )}
@@ -263,6 +269,10 @@ function BulkLoadDialog({ open, onClose }: { open: boolean; onClose: () => void 
   );
   const good = rows.filter((r) => !r.problem);
   const bad = rows.filter((r) => r.problem);
+  const managerOptions = useMemo<SelectOption[]>(
+    () => (managers.data ?? []).map((m) => ({ value: m.id, label: `${m.full_name} — ${m.region ?? 'no region'}` })),
+    [managers.data],
+  );
 
   const run = async () => {
     setBusy(true);
@@ -314,14 +324,13 @@ function BulkLoadDialog({ open, onClose }: { open: boolean; onClose: () => void 
       }
     >
       <Field label="Regional manager for everyone in this batch" htmlFor="bulk-manager" hint="You can change individuals afterwards">
-        <Select id="bulk-manager" value={manager} onChange={(e) => setManager(e.target.value)}>
-          <option value="">No manager yet</option>
-          {(managers.data ?? []).map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.full_name} — {m.region}
-            </option>
-          ))}
-        </Select>
+        <Select
+          id="bulk-manager"
+          value={manager}
+          onChange={(e) => setManager(e.target.value)}
+          placeholder="No manager yet"
+          options={managerOptions}
+        />
       </Field>
       <Field label="Officers" htmlFor="bulk-text" className="mt-4">
         <Textarea
