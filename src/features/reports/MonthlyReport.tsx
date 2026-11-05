@@ -11,6 +11,17 @@ import { errorMessage } from '@/services/errors';
 import { reportsService } from '@/services/reports';
 import type { ReportFilters } from '@/types';
 import { exportToExcel, exportToPdf, type ExportSheet } from '@/utils/export';
+import type { ChartSpec, KpiTile } from '@/utils/pdfCharts';
+import {
+  contactMixChart,
+  debtorMoneyChart,
+  forwardedChart,
+  issueTypeChart,
+  monthlyKpis,
+  monthlyOverviewCharts,
+  officerCallsChart,
+  paymentStatusChart,
+} from './monthlyCharts';
 import { formatGHS, formatHours, formatNumber, formatPercent } from '@/utils/format';
 import { ReportTable, sum } from './ReportTable';
 import {
@@ -69,7 +80,7 @@ export function MonthlyReport({ baseFilters }: { baseFilters: ReportFilters }) {
   );
   const q = useQuery({ queryKey: [...qk.reports, 'monthly', filters], queryFn: () => loadMonthly(filters) });
 
-  const buildSheets = async (): Promise<ExportSheet[]> => {
+  const buildExport = async (): Promise<{ sheets: ExportSheet[]; kpis: KpiTile[]; charts: ChartSpec[] }> => {
     const d = q.data ?? (await loadMonthly(filters));
     const k = d.kpis;
     const c = d.combined;
@@ -112,25 +123,33 @@ export function MonthlyReport({ baseFilters }: { baseFilters: ReportFilters }) {
       loadPaymentSheets(filters),
       loadSlaSheets(filters),
     ]);
-    return [
+    /* Each table that gains from a picture carries its own chart, so the
+       two always describe the same numbers and cannot drift apart. */
+    const withChart = (sheet: ExportSheet, chart: ChartSpec): ExportSheet => ({ ...sheet, chart });
+    const forwarded = d.forwarded.totals.total > 0 ? forwardedSheets(d.forwarded) : [];
+
+    const sheets: ExportSheet[] = [
       summary,
-      breakdown('By type of contact', d.contact),
+      { ...breakdown('By type of contact', d.contact), chart: contactMixChart(d.contact) },
       statusSheet(d.regions),
-      ...issues,
+      ...issues.map((s, i) => (i === 0 ? withChart(s, issueTypeChart(d.issues)) : s)),
       outboundSheet(d.outbound),
-      ...paymentStatusSheets(d.paymentStatus, lookups.payment_statuses.map((s) => s.name)),
-      debtorMoneySheet(d.debtorMoney),
+      ...paymentStatusSheets(d.paymentStatus, lookups.payment_statuses.map((s) => s.name)).map((s, i) =>
+        i === 0 ? withChart(s, paymentStatusChart(d.paymentStatus)) : s,
+      ),
+      withChart(debtorMoneySheet(d.debtorMoney), debtorMoneyChart(d.debtorMoney)),
       ...payments.slice(0, 1),
-      officerSheet(d.officers),
-      ...(d.forwarded.totals.total > 0 ? forwardedSheets(d.forwarded) : []),
+      withChart(officerSheet(d.officers), officerCallsChart(d.officers)),
+      ...(forwarded.length > 0 ? [withChart(forwarded[0], forwardedChart(d.forwarded)), ...forwarded.slice(1)] : []),
       ...sla.slice(0, 1),
     ];
+    return { sheets, kpis: monthlyKpis(d), charts: monthlyOverviewCharts(d) };
   };
 
   const run = async (kind: 'pdf' | 'xlsx') => {
     setBusy(true);
     try {
-      const sheets = await buildSheets();
+      const { sheets, kpis, charts } = await buildExport();
       const opts = {
         filename: `monthly-report-${month}`,
         title: `${branding.app_name} — Monthly report, ${label}`,
@@ -138,7 +157,8 @@ export function MonthlyReport({ baseFilters }: { baseFilters: ReportFilters }) {
         sheets: kind === 'pdf' ? toPdfSheets(sheets) : sheets,
         orientation: 'landscape' as const,
       };
-      if (kind === 'pdf') exportToPdf(opts);
+      /* Charts are a PDF thing — Excel gets the numbers to work with. */
+      if (kind === 'pdf') exportToPdf({ ...opts, kpis, charts });
       else exportToExcel(opts);
       toast.success(`Monthly report for ${label} downloaded`);
     } catch (err) {
