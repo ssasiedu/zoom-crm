@@ -52,6 +52,27 @@ export function formatHours(hours: number | null | undefined): string {
   return `${(h / 24).toFixed(1)} days`;
 }
 
+/** 45 min · 2 h 15 m · 3 d 4 h — used for turnaround times */
+export function formatMinutes(minutes: number | null | undefined, fallback = '—'): string {
+  if (minutes === null || minutes === undefined || !Number.isFinite(Number(minutes))) return fallback;
+  const m = Math.max(0, Math.round(Number(minutes)));
+  if (m < 60) return `${m} min`;
+  if (m < 1440) {
+    const h = Math.floor(m / 60);
+    const rest = m % 60;
+    return rest === 0 ? `${h} h` : `${h} h ${rest} m`;
+  }
+  const d = Math.floor(m / 1440);
+  const h = Math.round((m % 1440) / 60);
+  return h === 0 ? `${d} d` : `${d} d ${h} h`;
+}
+
+/** Minutes as decimal hours, for spreadsheet columns */
+export function minutesToHours(minutes: number | null | undefined): number | '' {
+  if (minutes === null || minutes === undefined || !Number.isFinite(Number(minutes))) return '';
+  return Number((Number(minutes) / 60).toFixed(2));
+}
+
 export function formatBytes(bytes: number | null | undefined): string {
   if (!bytes) return '0 B';
   const units = ['B', 'KB', 'MB', 'GB'];

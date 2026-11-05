@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import type { RowSelectionState, VisibilityState } from '@tanstack/react-table';
-import { ArrowRightLeft, ChevronDown, ClipboardList, Download, FileSpreadsheet, FileText, Plus, Upload, UserCheck, X } from 'lucide-react';
+import { ArrowRightLeft, ChevronDown, ClipboardList, Download, FileSpreadsheet, FileText, Plus, Send, Upload, UserCheck, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
+import { useBranding } from '@/hooks/useSettings';
 import { useTicketList } from '@/hooks/useTickets';
 import { errorMessage } from '@/services/errors';
 import { ticketsService } from '@/services/tickets';
@@ -12,6 +13,7 @@ import { Button, Card, DataTable, EmptyState, ErrorState, Menu, PageHeader } fro
 import { formatNumber } from '@/utils/format';
 import { AssignDialog } from './AssignDialog';
 import { BulkStatusDialog } from './BulkStatusDialog';
+import { ForwardDialog } from './ForwardDialog';
 import { ImportDialog } from './ImportDialog';
 import { SavedViewsMenu } from './SavedViewsMenu';
 import { DEFAULT_HIDDEN_COLUMNS, ticketColumns } from './ticketColumns';
@@ -20,11 +22,12 @@ import { TicketDrawer } from './TicketDrawer';
 import { TicketFiltersBar } from './TicketFiltersBar';
 import { useTicketUrlState } from './ticketFilters';
 
-const VIS_KEY = 'dm-crm:ticket-columns';
+const VIS_KEY = 'zoomlion-crm:ticket-columns';
 
 export default function AllTicketsPage() {
   const navigate = useNavigate();
   const { can, role } = useAuth();
+  const branding = useBranding();
   const state = useTicketUrlState();
   const { filters, sorting, page, pageSize, update, setSorting } = state;
   const [selection, setSelection] = useState<RowSelectionState>({});
@@ -39,6 +42,7 @@ export default function AllTicketsPage() {
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [assignOpen, setAssignOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
+  const [forwardOpen, setForwardOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -77,7 +81,12 @@ export default function AllTicketsPage() {
         toast.error('PDF export is limited to 3,000 rows. Use Excel instead or narrow the filters.');
         return;
       }
-      exportTickets(all, fmt, selected.length ? `${selected.length} selected tickets` : `${all.length} tickets (current filters)`);
+      exportTickets(
+        all,
+        fmt,
+        selected.length ? `${selected.length} selected tickets` : `${all.length} tickets (current filters)`,
+        branding.app_name,
+      );
       toast.success(`Exported ${formatNumber(all.length)} tickets`);
     } catch (err) {
       toast.error(errorMessage(err));
@@ -179,6 +188,11 @@ export default function AllTicketsPage() {
                       Assign
                     </Button>
                   )}
+                  {can('tickets:forward') && (
+                    <Button size="xs" variant="secondary" leftIcon={<Send className="size-3.5" />} onClick={() => setForwardOpen(true)}>
+                      Forward to district
+                    </Button>
+                  )}
                   {can('tickets:close') && (
                     <Button size="xs" variant="secondary" leftIcon={<ArrowRightLeft className="size-3.5" />} onClick={() => setStatusOpen(true)}>
                       Change status
@@ -219,6 +233,13 @@ export default function AllTicketsPage() {
       <AssignDialog
         open={assignOpen}
         onClose={() => setAssignOpen(false)}
+        ticketIds={selected.map((s) => s.id)}
+        region={bulkRegion}
+        onDone={clearSelection}
+      />
+      <ForwardDialog
+        open={forwardOpen}
+        onClose={() => setForwardOpen(false)}
         ticketIds={selected.map((s) => s.id)}
         region={bulkRegion}
         onDone={clearSelection}

@@ -7,6 +7,7 @@ import { AppShell } from '@/components/layout/AppShell';
 import { ErrorBoundary } from '@/components/layout/ErrorBoundary';
 import { EmptyState, FullPageSpinner, PageSkeleton } from '@/components/ui';
 import { AuthProvider } from '@/hooks/useAuth';
+import { useApplyBranding } from '@/hooks/useSettings';
 import { useTheme } from '@/hooks/useTheme';
 import type { Permission } from '@/lib/permissions';
 import { queryClient } from '@/lib/queryClient';
@@ -18,11 +19,14 @@ const ResetPasswordPage = lazy(() => import('@/features/auth/ResetPasswordPage')
 const DashboardPage = lazy(() => import('@/features/dashboard/DashboardPage'));
 const MyTicketsPage = lazy(() => import('@/features/tickets/MyTicketsPage'));
 const AllTicketsPage = lazy(() => import('@/features/tickets/AllTicketsPage'));
+const ForwardedPage = lazy(() => import('@/features/tickets/ForwardedPage'));
 const NewTicketPage = lazy(() => import('@/features/tickets/NewTicketPage'));
 const TicketDetailPage = lazy(() => import('@/features/tickets/TicketDetailPage'));
 const ReportsPage = lazy(() => import('@/features/reports/ReportsPage'));
 const NotificationsPage = lazy(() => import('@/features/notifications/NotificationsPage'));
 const AdminPage = lazy(() => import('@/features/admin/AdminPage'));
+const DebtorsPage = lazy(() => import('@/features/debtors/DebtorsPage'));
+const MyDebtorsPage = lazy(() => import('@/features/debtors/MyDebtorsPage'));
 const ProfilePage = lazy(() => import('@/features/profile/ProfilePage'));
 
 function Page({ children, permission }: { children: ReactNode; permission?: Permission }) {
@@ -50,6 +54,12 @@ function ThemedToaster() {
   return <Toaster richColors closeButton position="top-right" theme={resolved} toastOptions={{ duration: 4500 }} />;
 }
 
+/** Applies the company name, logo and colours from Administration → Branding */
+function Branding() {
+  useApplyBranding();
+  return null;
+}
+
 export function App() {
   return (
     <ErrorBoundary fullPage>
@@ -71,9 +81,13 @@ export function App() {
                   <Route index element={<HomeRedirect />} />
                   <Route path="dashboard" element={<Page permission="dashboard:view"><DashboardPage /></Page>} />
                   <Route path="my-tickets" element={<Page><MyTicketsPage /></Page>} />
+                  <Route path="field-work" element={<Page><MyTicketsPage mode="field" /></Page>} />
+                  <Route path="forwarded" element={<Page permission="tickets:forward"><ForwardedPage /></Page>} />
                   <Route path="tickets" element={<Page permission="tickets:list"><AllTicketsPage /></Page>} />
                   <Route path="tickets/new" element={<Page permission="tickets:create"><NewTicketPage /></Page>} />
                   <Route path="tickets/:id" element={<Page><TicketDetailPage /></Page>} />
+                  <Route path="my-debtors" element={<Page><MyDebtorsPage /></Page>} />
+                  <Route path="debtors" element={<Page permission="debtors:view"><DebtorsPage /></Page>} />
                   <Route path="reports" element={<Page permission="reports:view"><ReportsPage /></Page>} />
                   <Route path="notifications" element={<Page><NotificationsPage /></Page>} />
                   <Route path="admin" element={<Page permission="admin"><AdminPage /></Page>} />
@@ -82,6 +96,7 @@ export function App() {
                 </Route>
               </Routes>
             </Suspense>
+            <Branding />
             <ThemedToaster />
           </AuthProvider>
         </BrowserRouter>

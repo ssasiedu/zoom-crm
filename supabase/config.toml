@@ -33,3 +33,9 @@ enable_confirmations = false
 
 [functions.invite-user]
 verify_jwt = true
+
+[functions.send-sms]
+verify_jwt = true
+
+[functions.ai-assist]
+verify_jwt = true

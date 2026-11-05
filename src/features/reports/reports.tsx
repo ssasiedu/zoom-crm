@@ -1,25 +1,31 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { format, parseISO } from 'date-fns';
 import { ChartCard, ChartTooltip, useChartTheme } from '@/components/charts/ChartKit';
-import { Card, CardHeader, EmptyState, ErrorState, TableSkeleton } from '@/components/ui';
+import { Card, CardHeader, EmptyState, ErrorState, StatCard, TableSkeleton } from '@/components/ui';
 import { useLookups } from '@/hooks/useLookups';
 import { CHART_PALETTE, STATUS_COLORS } from '@/lib/constants';
 import { qk } from '@/lib/queryClient';
 import { errorMessage } from '@/services/errors';
 import { reportsService } from '@/services/reports';
 import type {
+  DebtorMoneyByRegionRow,
   IssueByRegionRow,
-  OfficerPerformanceRow,
+  OfficerCombinedRow,
+  OutboundByRegionRow,
   PaymentRow,
+  PaymentStatusByRegionRow,
   ReportFilters,
   SlaAgingReport,
+  StaffWorkloadRow,
   StatusByRegionRow,
 } from '@/types';
 import type { ExportSheet } from '@/utils/export';
-import { formatGHS, formatHours, formatNumber, formatPercent } from '@/utils/format';
+import { formatGHS, formatHours, formatMinutes, formatNumber, formatPercent } from '@/utils/format';
 import { ticketsUrl } from '@/features/tickets/ticketFilters';
+import { ForwardedWork, loadForwardedSheets } from './ForwardedWork';
 import { heat, ReportTable, sum, type ReportColumn } from './ReportTable';
 
 export interface ReportProps {
@@ -132,15 +138,41 @@ function StatusByRegion({ filters, ticketParams }: ReportProps) {
 /* ------------------------------------------------------------------ */
 /* 2. Issue type per region                                            */
 /* ------------------------------------------------------------------ */
-function pivotIssues(rows: IssueByRegionRow[], issueOrder: string[], regionOrder: string[]) {
+/**
+ * Region × issue type, with the debt-recovery work alongside it.
+ *
+ * Debtor calls carry no issue type of their own — they are the other
+ * half of what an office does — so they get a column of their own
+ * rather than being squeezed into one of the ticket issue types.
+ */
+function pivotIssues(
+  rows: IssueByRegionRow[],
+  issueOrder: string[],
+  regionOrder: string[],
+  debtorCalls: Map<string, number> = new Map(),
+) {
   const issues = [...new Set([...issueOrder.filter((i) => rows.some((r) => r.issue_type === i)), ...rows.map((r) => r.issue_type)])];
-  const regions = [...new Set([...regionOrder.filter((g) => rows.some((r) => r.region === g)), ...rows.map((r) => r.region)])];
+  const debtorRegions = [...debtorCalls].filter(([, n]) => n > 0).map(([r]) => r);
+  const regions = [
+    ...new Set([
+      ...regionOrder.filter((g) => rows.some((r) => r.region === g) || (debtorCalls.get(g) ?? 0) > 0),
+      ...rows.map((r) => r.region),
+      ...debtorRegions,
+    ]),
+  ];
   const cell = new Map(rows.map((r) => [`${r.region}|${r.issue_type}`, r.count]));
   const table = regions.map((region) => {
     const counts = Object.fromEntries(issues.map((i) => [i, cell.get(`${region}|${i}`) ?? 0]));
-    return { region, counts, total: Object.values(counts).reduce((a, b) => a + b, 0) };
+    const tickets = Object.values(counts).reduce((a, b) => a + b, 0);
+    const debtor = debtorCalls.get(region) ?? 0;
+    return { region, counts, tickets, debtor, total: tickets + debtor };
   });
-  return { issues, table, max: Math.max(0, ...rows.map((r) => r.count)) };
+  const anyDebtor = table.some((r) => r.debtor > 0);
+  return { issues, table, anyDebtor, max: Math.max(0, ...rows.map((r) => r.count)) };
+}
+
+function debtorCallMap(rows: OutboundByRegionRow[] | undefined): Map<string, number> {
+  return new Map((rows ?? []).map((r) => [r.region, r.debtor_calls]));
 }
 
 function IssueByRegion({ filters, ticketParams }: ReportProps) {
@@ -148,9 +180,16 @@ function IssueByRegion({ filters, ticketParams }: ReportProps) {
   const theme = useChartTheme();
   const { lookups } = useLookups();
   const q = useReport('issue-region', filters, reportsService.issueTypeByRegion);
-  const { issues, table, max } = useMemo(
-    () => pivotIssues(q.data ?? [], lookups.issue_types.map((i) => i.name), lookups.regions.map((r) => r.name)),
-    [q.data, lookups],
+  const qd = useReport('issue-region-debtors', filters, reportsService.outboundByRegion);
+  const { issues, table, anyDebtor, max } = useMemo(
+    () =>
+      pivotIssues(
+        q.data ?? [],
+        lookups.issue_types.map((i) => i.name),
+        lookups.regions.map((r) => r.name),
+        debtorCallMap(qd.data),
+      ),
+    [q.data, qd.data, lookups],
   );
   type Row = (typeof table)[number];
   const columns: ReportColumn<Row>[] = [
@@ -174,11 +213,26 @@ function IssueByRegion({ filters, ticketParams }: ReportProps) {
         ),
       footer: formatNumber(sum(table, (r) => r.counts[i])),
     })),
+    { key: 'tickets', header: 'Tickets', align: 'right', render: (r) => r.tickets, footer: formatNumber(sum(table, (r) => r.tickets)) },
+    {
+      key: 'debtor',
+      header: 'Debt recovery',
+      align: 'right',
+      render: (r) =>
+        r.debtor ? (
+          <button type="button" className="-mx-2 -my-1 rounded px-2 py-1 hover:underline" onClick={() => navigate(`/debtors?region=${encodeURIComponent(r.region)}`)}>
+            {r.debtor}
+          </button>
+        ) : (
+          <span className="text-slate-300 dark:text-slate-600">0</span>
+        ),
+      footer: formatNumber(sum(table, (r) => r.debtor)),
+    },
     { key: 'total', header: 'Total', align: 'right', render: (r) => <strong>{r.total}</strong>, footer: formatNumber(sum(table, (r) => r.total)) },
   ];
   const chartData = table.map((r) => ({ region: r.region, ...r.counts }));
   return (
-    <Frame loading={q.isLoading} error={q.error} retry={() => q.refetch()} empty={table.length === 0}>
+    <Frame loading={q.isLoading || qd.isLoading} error={q.error ?? qd.error} retry={() => { q.refetch(); qd.refetch(); }} empty={table.length === 0}>
       <ChartCard title="Issue types by region" height={340}>
         <ResponsiveContainer>
           <BarChart data={chartData} margin={{ top: 5, right: 10, left: -15, bottom: 40 }}>
@@ -194,7 +248,10 @@ function IssueByRegion({ filters, ticketParams }: ReportProps) {
         </ResponsiveContainer>
       </ChartCard>
       <Card>
-        <CardHeader title="Issue type per region" description="Darker cells have more tickets" />
+        <CardHeader
+          title="Issue type per region"
+          description={anyDebtor ? 'Darker cells have more tickets. Debt recovery counts the debtor calls logged in that region.' : 'Darker cells have more tickets'}
+        />
         <ReportTable caption="Issue type per region" columns={columns} rows={table} rowKey={(r) => r.region} />
       </Card>
     </Frame>
@@ -281,19 +338,18 @@ function PaymentsByRegion({ filters }: ReportProps) {
 /* ------------------------------------------------------------------ */
 /* 4. Officer performance per contact type                             */
 /* ------------------------------------------------------------------ */
-function OfficerPerformance({ filters, ticketParams }: ReportProps) {
-  const navigate = useNavigate();
-  const { lookups } = useLookups();
-  const q = useReport('officer-perf', filters, reportsService.officerPerformance);
-  const rows = q.data ?? [];
-  const contactTypes = [
-    ...new Set([
-      ...lookups.contact_types.map((c) => c.name).filter((c) => rows.some((r) => r.by_contact_type[c])),
-      ...rows.flatMap((r) => Object.keys(r.by_contact_type)),
-    ]),
-  ];
+/**
+ * Columns shared by the officer performance report and the monthly
+ * report's officer section: every type of contact the officer handled,
+ * then the debtor calls, then one total-calls figure, then results.
+ */
+export function officerColumns(
+  rows: OfficerCombinedRow[],
+  contactTypes: string[],
+  onDebtors?: (r: OfficerCombinedRow) => void,
+): ReportColumn<OfficerCombinedRow>[] {
   const max = Math.max(0, ...rows.flatMap((r) => Object.values(r.by_contact_type)));
-  const columns: ReportColumn<OfficerPerformanceRow>[] = [
+  return [
     {
       key: 'name',
       header: 'Officer',
@@ -305,7 +361,7 @@ function OfficerPerformance({ filters, ticketParams }: ReportProps) {
       ),
       footer: 'Total',
     },
-    ...contactTypes.map<ReportColumn<OfficerPerformanceRow>>((c) => ({
+    ...contactTypes.map<ReportColumn<OfficerCombinedRow>>((c) => ({
       key: c,
       header: c,
       align: 'right',
@@ -317,6 +373,35 @@ function OfficerPerformance({ filters, ticketParams }: ReportProps) {
         ),
       footer: formatNumber(sum(rows, (r) => r.by_contact_type[c] ?? 0)),
     })),
+    {
+      key: 'debtor-calls',
+      header: 'Debtor calls',
+      align: 'right',
+      render: (r) =>
+        r.debtor_calls ? (
+          onDebtors ? (
+            <button
+              type="button"
+              className="-mx-2 -my-1 rounded px-2 py-1 hover:underline"
+              onClick={(e) => { e.stopPropagation(); onDebtors(r); }}
+            >
+              {r.debtor_calls}
+            </button>
+          ) : (
+            r.debtor_calls
+          )
+        ) : (
+          <span className="text-slate-300 dark:text-slate-600">0</span>
+        ),
+      footer: formatNumber(sum(rows, (r) => r.debtor_calls)),
+    },
+    {
+      key: 'total-calls',
+      header: 'Total calls',
+      align: 'right',
+      render: (r) => <strong>{formatNumber(r.total_calls)}</strong>,
+      footer: formatNumber(sum(rows, (r) => r.total_calls)),
+    },
     { key: 'assigned', header: 'Assigned', align: 'right', render: (r) => <strong>{r.total_assigned}</strong>, footer: formatNumber(sum(rows, (r) => r.total_assigned)) },
     { key: 'active', header: 'Active', align: 'right', render: (r) => r.active, footer: formatNumber(sum(rows, (r) => r.active)) },
     { key: 'resolved', header: 'Resolved', align: 'right', render: (r) => r.resolved, footer: formatNumber(sum(rows, (r) => r.resolved)) },
@@ -341,12 +426,48 @@ function OfficerPerformance({ filters, ticketParams }: ReportProps) {
       render: (r) => (r.overdue ? <span className="font-semibold text-rose-600">{r.overdue}</span> : 0),
       footer: formatNumber(sum(rows, (r) => r.overdue)),
     },
-    { key: 'pay', header: 'Payments', align: 'right', render: (r) => money(r.payments), footer: money(sum(rows, (r) => r.payments)) },
+    { key: 'pay', header: 'Ticket payments', align: 'right', render: (r) => money(r.payments), footer: money(sum(rows, (r) => r.payments)) },
+    {
+      key: 'debtor-money',
+      header: 'From debtors',
+      align: 'right',
+      render: (r) => (r.debtor_collected ? money(r.debtor_collected) : <span className="text-slate-300 dark:text-slate-600">—</span>),
+      footer: money(sum(rows, (r) => r.debtor_collected)),
+    },
+    {
+      key: 'total-money',
+      header: 'Total received',
+      align: 'right',
+      render: (r) => <strong>{money(r.total_received)}</strong>,
+      footer: money(sum(rows, (r) => r.total_received)),
+    },
   ];
+}
+
+/** The types of contact actually present, in the order the lookups define */
+function contactTypesPresent(rows: OfficerCombinedRow[], lookupNames: string[]): string[] {
+  return [
+    ...new Set([
+      ...lookupNames.filter((c) => rows.some((r) => r.by_contact_type[c])),
+      ...rows.flatMap((r) => Object.keys(r.by_contact_type)),
+    ]),
+  ];
+}
+
+function OfficerPerformance({ filters, ticketParams }: ReportProps) {
+  const navigate = useNavigate();
+  const { lookups } = useLookups();
+  const q = useReport('officer-perf-combined', filters, reportsService.officerPerformanceCombined);
+  const rows = q.data ?? [];
+  const contactTypes = contactTypesPresent(rows, lookups.contact_types.map((c) => c.name));
+  const columns = officerColumns(rows, contactTypes, (r) => navigate(`/debtors?officer=${r.officer_id}`));
   return (
     <Frame loading={q.isLoading} error={q.error} retry={() => q.refetch()} empty={rows.length === 0}>
       <Card>
-        <CardHeader title="Officer performance per type of contact" description="Click an officer to see their tickets" />
+        <CardHeader
+          title="Officer performance per type of contact"
+          description="Total calls adds the debtor calls to every ticket contact. Click an officer to see their tickets."
+        />
         <ReportTable
           caption="Officer performance"
           columns={columns}
@@ -452,17 +573,215 @@ function SlaAging({ filters, ticketParams }: ReportProps) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 8. Outbound calls per region                                        */
+/* ------------------------------------------------------------------ */
+export const OUTBOUND_REGION_COLUMNS = (rows: OutboundByRegionRow[]): ReportColumn<OutboundByRegionRow>[] => [
+  { key: 'region', header: 'Region', render: (r) => <span className="font-medium">{r.region}</span>, footer: 'Total' },
+  { key: 'tkt', header: 'Ticket calls', align: 'right', render: (r) => formatNumber(r.ticket_outbound), footer: formatNumber(sum(rows, (r) => r.ticket_outbound)) },
+  { key: 'debt', header: 'Debtor calls', align: 'right', render: (r) => formatNumber(r.debtor_calls), footer: formatNumber(sum(rows, (r) => r.debtor_calls)) },
+  { key: 'cust', header: 'Customers called', align: 'right', render: (r) => formatNumber(r.debtor_customers), footer: formatNumber(sum(rows, (r) => r.debtor_customers)) },
+  { key: 'tot', header: 'Total outbound', align: 'right', render: (r) => <strong>{formatNumber(r.total_outbound)}</strong>, footer: formatNumber(sum(rows, (r) => r.total_outbound)) },
+  {
+    key: 'share',
+    header: 'Share',
+    align: 'right',
+    render: (r) => formatPercent((100 * r.total_outbound) / Math.max(1, sum(rows, (x) => x.total_outbound))),
+  },
+];
+
+function OutboundByRegion({ filters }: ReportProps) {
+  const theme = useChartTheme();
+  const q = useReport('outbound-region', filters, reportsService.outboundByRegion);
+  const rows = (q.data ?? []).filter((r) => r.total_outbound > 0);
+  return (
+    <Frame loading={q.isLoading} error={q.error} retry={() => q.refetch()} empty={rows.length === 0}>
+      <ChartCard title="Outbound calls by region" height={320}>
+        <ResponsiveContainer>
+          <BarChart data={rows} margin={{ top: 5, right: 10, left: -15, bottom: 40 }}>
+            <CartesianGrid stroke={theme.grid} vertical={false} />
+            <XAxis dataKey="region" tick={theme.tick} angle={-35} textAnchor="end" interval={0} axisLine={false} tickLine={false} />
+            <YAxis allowDecimals={false} tick={theme.tick} axisLine={false} tickLine={false} />
+            <Tooltip content={<ChartTooltip />} cursor={{ fill: theme.cursor }} />
+            <Legend iconType="circle" verticalAlign="top" wrapperStyle={{ fontSize: 11 }} />
+            <Bar dataKey="ticket_outbound" name="Ticket calls" stackId="s" fill={CHART_PALETTE[0]} />
+            <Bar dataKey="debtor_calls" name="Debtor calls" stackId="s" fill={CHART_PALETTE[1]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartCard>
+      <Card>
+        <CardHeader title="What the outbound calls were made of" description="Calls logged on tickets, and calls logged against debtor accounts" />
+        <ReportTable caption="Outbound calls per region" columns={OUTBOUND_REGION_COLUMNS(rows)} rows={rows} rowKey={(r) => r.region} />
+      </Card>
+    </Frame>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 9. Payment status per region                                        */
+/* ------------------------------------------------------------------ */
+function pivotPaymentStatus(rows: PaymentStatusByRegionRow[], statusOrder: string[]) {
+  const statuses = [
+    ...new Set([
+      ...statusOrder.filter((s) => rows.some((r) => r.payment_status === s)),
+      ...rows.map((r) => r.payment_status),
+    ]),
+  ];
+  const regions = [...new Set(rows.map((r) => r.region))];
+  const byRegion = regions
+    .map((region) => {
+      const rr = rows.filter((r) => r.region === region);
+      const amounts = Object.fromEntries(statuses.map((s) => [s, sum(rr.filter((r) => r.payment_status === s), (r) => r.total)]));
+      return {
+        region,
+        amounts,
+        count: sum(rr, (r) => r.count),
+        debtor_total: sum(rr, (r) => r.debtor_total),
+        total: sum(rr, (r) => r.total),
+      };
+    })
+    .sort((a, b) => b.total - a.total);
+  const byStatus = statuses.map((label) => {
+    const rr = rows.filter((r) => r.payment_status === label);
+    return {
+      label,
+      count: sum(rr, (r) => r.count),
+      ticket_total: sum(rr, (r) => r.ticket_total),
+      debtor_total: sum(rr, (r) => r.debtor_total),
+      total: sum(rr, (r) => r.total),
+    };
+  });
+  return { statuses, byRegion, byStatus };
+}
+
+function PaymentStatusByRegion({ filters }: ReportProps) {
+  const theme = useChartTheme();
+  const { lookups } = useLookups();
+  const q = useReport('payment-status-region', filters, reportsService.paymentStatusByRegion);
+  const p = useMemo(() => pivotPaymentStatus(q.data ?? [], lookups.payment_statuses.map((s) => s.name)), [q.data, lookups]);
+  type Row = (typeof p.byRegion)[number];
+  const columns: ReportColumn<Row>[] = [
+    { key: 'region', header: 'Region', render: (r) => <span className="font-medium">{r.region}</span>, footer: 'Total' },
+    ...p.statuses.map<ReportColumn<Row>>((s) => ({
+      key: s,
+      header: s,
+      align: 'right',
+      render: (r) => (r.amounts[s] ? money(r.amounts[s]) : <span className="text-slate-300 dark:text-slate-600">—</span>),
+      footer: money(sum(p.byRegion, (r) => r.amounts[s])),
+    })),
+    {
+      key: 'debt',
+      header: 'of which debtors',
+      align: 'right',
+      render: (r) => (r.debtor_total ? money(r.debtor_total) : <span className="text-slate-300 dark:text-slate-600">—</span>),
+      footer: money(sum(p.byRegion, (r) => r.debtor_total)),
+    },
+    { key: 'count', header: 'Payments', align: 'right', render: (r) => formatNumber(r.count), footer: formatNumber(sum(p.byRegion, (r) => r.count)) },
+    { key: 'total', header: 'Total', align: 'right', render: (r) => <strong>{money(r.total)}</strong>, footer: money(sum(p.byRegion, (r) => r.total)) },
+  ];
+  return (
+    <Frame loading={q.isLoading} error={q.error} retry={() => q.refetch()} empty={p.byRegion.length === 0}>
+      <ChartCard title="Payments by status" height={300}>
+        <ResponsiveContainer>
+          <BarChart data={p.byStatus} margin={{ top: 5, right: 10, left: 20, bottom: 30 }}>
+            <CartesianGrid stroke={theme.grid} vertical={false} />
+            <XAxis dataKey="label" tick={theme.tick} interval={0} axisLine={false} tickLine={false} />
+            <YAxis tick={theme.tick} axisLine={false} tickLine={false} tickFormatter={(v: number) => `₵${formatNumber(v)}`} />
+            <Tooltip content={<ChartTooltip valueFormatter={money} />} cursor={{ fill: theme.cursor }} />
+            <Legend iconType="circle" verticalAlign="top" wrapperStyle={{ fontSize: 11 }} />
+            <Bar dataKey="ticket_total" name="From tickets" stackId="s" fill={CHART_PALETTE[0]} />
+            <Bar dataKey="debtor_total" name="From debtors" stackId="s" fill={theme.gold} />
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartCard>
+      <Card>
+        <CardHeader
+          title="Payment status per region"
+          description="Money recovered from debtors is counted as Receivables, and shown again on its own so the two halves can be told apart."
+        />
+        <ReportTable caption="Payment status per region" columns={columns} rows={p.byRegion} rowKey={(r) => r.region} />
+      </Card>
+      <Card>
+        <CardHeader title="By payment status" />
+        <ReportTable
+          caption="By payment status"
+          rows={p.byStatus}
+          rowKey={(r) => r.label}
+          columns={[
+            { key: 'l', header: 'Payment status', render: (r) => r.label, footer: 'Total' },
+            { key: 'c', header: 'Payments', align: 'right', render: (r) => formatNumber(r.count), footer: formatNumber(sum(p.byStatus, (r) => r.count)) },
+            { key: 'tk', header: 'From tickets', align: 'right', render: (r) => money(r.ticket_total), footer: money(sum(p.byStatus, (r) => r.ticket_total)) },
+            { key: 'db', header: 'From debtors', align: 'right', render: (r) => money(r.debtor_total), footer: money(sum(p.byStatus, (r) => r.debtor_total)) },
+            { key: 't', header: 'Total', align: 'right', render: (r) => <strong>{money(r.total)}</strong>, footer: money(sum(p.byStatus, (r) => r.total)) },
+          ]}
+        />
+      </Card>
+    </Frame>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* 10. Debtor money per region                                         */
+/* ------------------------------------------------------------------ */
+export const DEBTOR_MONEY_COLUMNS = (rows: DebtorMoneyByRegionRow[]): ReportColumn<DebtorMoneyByRegionRow>[] => [
+  { key: 'region', header: 'Region', render: (r) => <span className="font-medium">{r.region}</span>, footer: 'Total' },
+  { key: 'calls', header: 'Calls', align: 'right', render: (r) => formatNumber(r.calls), footer: formatNumber(sum(rows, (r) => r.calls)) },
+  { key: 'called', header: 'Customers called', align: 'right', render: (r) => formatNumber(r.customers_called), footer: formatNumber(sum(rows, (r) => r.customers_called)) },
+  { key: 'paid', header: 'Customers who paid', align: 'right', render: (r) => formatNumber(r.customers_paid), footer: formatNumber(sum(rows, (r) => r.customers_paid)) },
+  { key: 'payments', header: 'Payments', align: 'right', render: (r) => formatNumber(r.payments), footer: formatNumber(sum(rows, (r) => r.payments)) },
+  { key: 'rate', header: 'Pay rate', align: 'right', render: (r) => formatPercent(r.pay_rate) },
+  { key: 'collected', header: 'Received', align: 'right', render: (r) => <strong>{money(r.collected)}</strong>, footer: money(sum(rows, (r) => r.collected)) },
+];
+
+function DebtorMoneyByRegion({ filters }: ReportProps) {
+  const navigate = useNavigate();
+  const theme = useChartTheme();
+  const q = useReport('debtor-money-region', filters, reportsService.debtorMoneyByRegion);
+  const rows = (q.data ?? []).filter((r) => r.calls > 0 || r.collected > 0);
+  return (
+    <Frame loading={q.isLoading} error={q.error} retry={() => q.refetch()} empty={rows.length === 0}>
+      <ChartCard title="Money recovered from debtors, by region" height={320}>
+        <ResponsiveContainer>
+          <BarChart data={rows} margin={{ top: 5, right: 10, left: 20, bottom: 40 }}>
+            <CartesianGrid stroke={theme.grid} vertical={false} />
+            <XAxis dataKey="region" tick={theme.tick} angle={-35} textAnchor="end" interval={0} axisLine={false} tickLine={false} />
+            <YAxis tick={theme.tick} axisLine={false} tickLine={false} tickFormatter={(v: number) => `₵${formatNumber(v)}`} />
+            <Tooltip content={<ChartTooltip valueFormatter={money} />} cursor={{ fill: theme.cursor }} />
+            <Bar dataKey="collected" name="Received" fill={theme.gold} radius={[6, 6, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartCard>
+      <Card>
+        <CardHeader title="Debtor collections per region" description="Counted on the day of the call that collected the money. Click a region to open its debtor list." />
+        <ReportTable
+          caption="Debtor collections per region"
+          columns={DEBTOR_MONEY_COLUMNS(rows)}
+          rows={rows}
+          rowKey={(r) => r.region}
+          onRowClick={(r) => navigate(`/debtors?region=${encodeURIComponent(r.region)}`)}
+        />
+      </Card>
+    </Frame>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* Export builders                                                     */
 /* ------------------------------------------------------------------ */
 async function loadIssueSheets(f: ReportFilters): Promise<ExportSheet[]> {
-  const rows = await reportsService.issueTypeByRegion(f);
-  const { issues, table } = pivotIssues(rows, [], []);
+  const [rows, outbound] = await Promise.all([reportsService.issueTypeByRegion(f), reportsService.outboundByRegion(f)]);
+  const { issues, table } = pivotIssues(rows, [], [], debtorCallMap(outbound));
   return [
     {
       name: 'Issue type per region',
-      head: ['Region', ...issues, 'Total'],
-      rows: table.map((r) => [r.region, ...issues.map((i) => r.counts[i]), r.total]),
-      foot: ['TOTAL', ...issues.map((i) => sum(table, (r) => r.counts[i])), sum(table, (r) => r.total)],
+      head: ['Region', ...issues, 'Tickets', 'Debt recovery', 'Total'],
+      rows: table.map((r) => [r.region, ...issues.map((i) => r.counts[i]), r.tickets, r.debtor, r.total]),
+      foot: [
+        'TOTAL',
+        ...issues.map((i) => sum(table, (r) => r.counts[i])),
+        sum(table, (r) => r.tickets),
+        sum(table, (r) => r.debtor),
+        sum(table, (r) => r.total),
+      ],
     },
   ];
 }
@@ -488,39 +807,134 @@ async function loadPaymentSheets(f: ReportFilters): Promise<ExportSheet[]> {
   ];
 }
 
-async function loadOfficerSheets(f: ReportFilters): Promise<ExportSheet[]> {
-  const rows = await reportsService.officerPerformance(f);
+function officerSheet(rows: OfficerCombinedRow[]): ExportSheet {
   const cts = [...new Set(rows.flatMap((r) => Object.keys(r.by_contact_type)))].sort();
+  return {
+    name: 'Officer performance',
+    head: [
+      'Officer', 'Region', ...cts, 'Debtor calls', 'Total calls',
+      'Assigned', 'Active', 'Resolved', 'Resolution %', 'Avg resolution (h)', 'Overdue',
+      'Ticket payments (GHS)', 'From debtors (GHS)', 'Total received (GHS)',
+    ],
+    rows: rows.map((r) => [
+      r.officer_name,
+      r.region ?? '',
+      ...cts.map((c) => r.by_contact_type[c] ?? 0),
+      r.debtor_calls,
+      r.total_calls,
+      r.total_assigned,
+      r.active,
+      r.resolved,
+      r.resolution_rate,
+      r.avg_resolution_hours ?? '',
+      r.overdue,
+      pdfMoney(r.payments),
+      pdfMoney(r.debtor_collected),
+      pdfMoney(r.total_received),
+    ]),
+    foot: [
+      'TOTAL',
+      '',
+      ...cts.map((c) => sum(rows, (r) => r.by_contact_type[c] ?? 0)),
+      sum(rows, (r) => r.debtor_calls),
+      sum(rows, (r) => r.total_calls),
+      sum(rows, (r) => r.total_assigned),
+      sum(rows, (r) => r.active),
+      sum(rows, (r) => r.resolved),
+      '',
+      '',
+      sum(rows, (r) => r.overdue),
+      pdfMoney(sum(rows, (r) => r.payments)),
+      pdfMoney(sum(rows, (r) => r.debtor_collected)),
+      pdfMoney(sum(rows, (r) => r.total_received)),
+    ],
+  };
+}
+
+async function loadOfficerSheets(f: ReportFilters): Promise<ExportSheet[]> {
+  return [officerSheet(await reportsService.officerPerformanceCombined(f))];
+}
+
+function outboundSheet(rows: OutboundByRegionRow[]): ExportSheet {
+  const live = rows.filter((r) => r.total_outbound > 0);
+  return {
+    name: 'Outbound calls per region',
+    head: ['Region', 'Ticket calls', 'Debtor calls', 'Customers called', 'Total outbound'],
+    rows: live.map((r) => [r.region, r.ticket_outbound, r.debtor_calls, r.debtor_customers, r.total_outbound]),
+    foot: [
+      'TOTAL',
+      sum(live, (r) => r.ticket_outbound),
+      sum(live, (r) => r.debtor_calls),
+      sum(live, (r) => r.debtor_customers),
+      sum(live, (r) => r.total_outbound),
+    ],
+  };
+}
+
+async function loadOutboundSheets(f: ReportFilters): Promise<ExportSheet[]> {
+  return [outboundSheet(await reportsService.outboundByRegion(f))];
+}
+
+function paymentStatusSheets(rows: PaymentStatusByRegionRow[], statusOrder: string[] = []): ExportSheet[] {
+  const p = pivotPaymentStatus(rows, statusOrder);
   return [
     {
-      name: 'Officer performance',
-      head: ['Officer', 'Region', ...cts, 'Assigned', 'Active', 'Resolved', 'Resolution %', 'Avg resolution (h)', 'Overdue', 'Payments (GHS)'],
-      rows: rows.map((r) => [
-        r.officer_name,
-        r.region ?? '',
-        ...cts.map((c) => r.by_contact_type[c] ?? 0),
-        r.total_assigned,
-        r.active,
-        r.resolved,
-        r.resolution_rate,
-        r.avg_resolution_hours ?? '',
-        r.overdue,
-        pdfMoney(r.payments),
+      name: 'Payment status per region',
+      head: ['Region', ...p.statuses.map((s) => `${s} (GHS)`), 'of which debtors (GHS)', 'Payments', 'Total (GHS)'],
+      rows: p.byRegion.map((r) => [
+        r.region,
+        ...p.statuses.map((s) => pdfMoney(r.amounts[s])),
+        pdfMoney(r.debtor_total),
+        r.count,
+        pdfMoney(r.total),
       ]),
       foot: [
         'TOTAL',
-        '',
-        ...cts.map((c) => sum(rows, (r) => r.by_contact_type[c] ?? 0)),
-        sum(rows, (r) => r.total_assigned),
-        sum(rows, (r) => r.active),
-        sum(rows, (r) => r.resolved),
-        '',
-        '',
-        sum(rows, (r) => r.overdue),
-        pdfMoney(sum(rows, (r) => r.payments)),
+        ...p.statuses.map((s) => pdfMoney(sum(p.byRegion, (r) => r.amounts[s]))),
+        pdfMoney(sum(p.byRegion, (r) => r.debtor_total)),
+        sum(p.byRegion, (r) => r.count),
+        pdfMoney(sum(p.byRegion, (r) => r.total)),
+      ],
+    },
+    {
+      name: 'By payment status',
+      head: ['Payment status', 'Payments', 'From tickets (GHS)', 'From debtors (GHS)', 'Total (GHS)'],
+      rows: p.byStatus.map((r) => [r.label, r.count, pdfMoney(r.ticket_total), pdfMoney(r.debtor_total), pdfMoney(r.total)]),
+      foot: [
+        'TOTAL',
+        sum(p.byStatus, (r) => r.count),
+        pdfMoney(sum(p.byStatus, (r) => r.ticket_total)),
+        pdfMoney(sum(p.byStatus, (r) => r.debtor_total)),
+        pdfMoney(sum(p.byStatus, (r) => r.total)),
       ],
     },
   ];
+}
+
+async function loadPaymentStatusSheets(f: ReportFilters): Promise<ExportSheet[]> {
+  return paymentStatusSheets(await reportsService.paymentStatusByRegion(f));
+}
+
+function debtorMoneySheet(rows: DebtorMoneyByRegionRow[]): ExportSheet {
+  const live = rows.filter((r) => r.calls > 0 || r.collected > 0);
+  return {
+    name: 'Debtor money per region',
+    head: ['Region', 'Calls', 'Customers called', 'Customers who paid', 'Payments', 'Pay rate %', 'Received (GHS)'],
+    rows: live.map((r) => [r.region, r.calls, r.customers_called, r.customers_paid, r.payments, r.pay_rate, pdfMoney(r.collected)]),
+    foot: [
+      'TOTAL',
+      sum(live, (r) => r.calls),
+      sum(live, (r) => r.customers_called),
+      sum(live, (r) => r.customers_paid),
+      sum(live, (r) => r.payments),
+      '',
+      pdfMoney(sum(live, (r) => r.collected)),
+    ],
+  };
+}
+
+async function loadDebtorMoneySheets(f: ReportFilters): Promise<ExportSheet[]> {
+  return [debtorMoneySheet(await reportsService.debtorMoneyByRegion(f))];
 }
 
 async function loadSlaSheets(f: ReportFilters): Promise<ExportSheet[]> {
@@ -537,6 +951,332 @@ async function loadSlaSheets(f: ReportFilters): Promise<ExportSheet[]> {
       name: 'Overdue by officer',
       head: ['Officer', ...head, 'Total'],
       rows: d.by_officer.map((r) => [r.officer_name, r.d0_2, r.d3_7, r.d8_14, r.d15_plus, r.total]),
+    },
+  ];
+}
+
+
+/* ------------------------------------------------------------------ */
+/* 6. Turnaround time                                                  */
+/* ------------------------------------------------------------------ */
+const TAT_BUCKET_COLORS = ['#10b981', '#22c55e', '#eab308', '#f97316', '#ef4444', '#991b1b'];
+
+function Turnaround({ filters, ticketParams }: ReportProps) {
+  const navigate = useNavigate();
+  const theme = useChartTheme();
+  const q = useReport('turnaround', filters, reportsService.turnaround);
+  const d = q.data;
+  const totals = d?.totals;
+
+  return (
+    <Frame loading={q.isLoading} error={q.error} retry={() => q.refetch()} empty={!totals || totals.resolved === 0}>
+      {d && totals && (
+        <>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+            <StatCard label="Resolved tickets" value={formatNumber(totals.resolved)} tone="gray" />
+            <StatCard
+              label="Average turnaround"
+              value={formatMinutes(totals.avg_resolution_minutes)}
+              tone="brand"
+              hint="Raised → completed"
+            />
+            <StatCard
+              label="Median turnaround"
+              value={formatMinutes(totals.median_resolution_minutes)}
+              tone="brand"
+              hint="Half are faster than this"
+            />
+            <StatCard
+              label="Average waiting time"
+              value={formatMinutes(totals.avg_response_minutes)}
+              tone="amber"
+              hint="Raised → first worked on"
+            />
+            <StatCard label="Within SLA" value={formatPercent(totals.within_sla)} tone="green" />
+          </div>
+
+          <div className="grid gap-5 lg:grid-cols-2">
+            <ChartCard title="How long tickets take" description="Resolved tickets by turnaround time" height={300}>
+              <ResponsiveContainer>
+                <BarChart data={d.buckets} margin={{ top: 5, right: 10, left: -15, bottom: 20 }}>
+                  <CartesianGrid stroke={theme.grid} vertical={false} />
+                  <XAxis dataKey="label" tick={theme.tick} interval={0} angle={-15} textAnchor="end" axisLine={false} tickLine={false} />
+                  <YAxis allowDecimals={false} tick={theme.tick} axisLine={false} tickLine={false} />
+                  <Tooltip content={<ChartTooltip />} cursor={{ fill: theme.cursor }} />
+                  <Bar dataKey="count" name="Tickets" radius={[6, 6, 0, 0]}>
+                    {d.buckets.map((_, i) => (
+                      <Cell key={i} fill={TAT_BUCKET_COLORS[i] ?? theme.brand} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+
+            <ChartCard title="Month by month" description="Average turnaround and waiting time, in hours" height={300}>
+              <ResponsiveContainer>
+                <LineChart
+                  data={d.trend.map((t) => ({
+                    ...t,
+                    label: format(parseISO(t.bucket), 'MMM yy'),
+                    tat: t.avg_resolution_minutes === null ? null : Number((t.avg_resolution_minutes / 60).toFixed(1)),
+                    wait: t.avg_response_minutes === null ? null : Number((t.avg_response_minutes / 60).toFixed(1)),
+                  }))}
+                  margin={{ top: 5, right: 10, left: -15, bottom: 0 }}
+                >
+                  <CartesianGrid stroke={theme.grid} vertical={false} />
+                  <XAxis dataKey="label" tick={theme.tick} axisLine={false} tickLine={false} />
+                  <YAxis tick={theme.tick} axisLine={false} tickLine={false} unit="h" />
+                  <Tooltip content={<ChartTooltip valueFormatter={(v) => `${v} h`} />} />
+                  <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+                  <Line type="monotone" dataKey="tat" name="Turnaround" stroke={theme.brand} strokeWidth={2} dot={false} />
+                  <Line type="monotone" dataKey="wait" name="Waiting" stroke={theme.gold} strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          </div>
+
+          <Card>
+            <CardHeader title="By officer" description="Click a row to see that officer's tickets" />
+            <ReportTable
+              caption="Turnaround by officer"
+              rows={d.by_officer}
+              rowKey={(r) => r.officer_name}
+              onRowClick={(r) => {
+                const officer = r.officer_name;
+                navigate(ticketsUrl({ ...ticketParams, status: 'Resolved,Closed', q: officer }));
+              }}
+              columns={[
+                { key: 'o', header: 'Officer', render: (r) => <span className="font-medium">{r.officer_name}</span> },
+                { key: 'region', header: 'Region', render: (r) => r.region ?? '—' },
+                { key: 'resolved', header: 'Resolved', align: 'right', render: (r) => r.resolved },
+                { key: 'avg', header: 'Average', align: 'right', render: (r) => formatMinutes(r.avg_resolution_minutes) },
+                { key: 'median', header: 'Median', align: 'right', render: (r) => formatMinutes(r.median_resolution_minutes) },
+                { key: 'wait', header: 'Waiting', align: 'right', render: (r) => formatMinutes(r.avg_response_minutes) },
+                { key: 'fast', header: 'Fastest', align: 'right', render: (r) => formatMinutes(r.fastest_minutes) },
+                { key: 'slow', header: 'Slowest', align: 'right', render: (r) => formatMinutes(r.slowest_minutes) },
+                { key: 'sla', header: 'Within SLA', align: 'right', render: (r) => formatPercent(r.within_sla) },
+              ]}
+            />
+          </Card>
+
+          <div className="grid gap-5 xl:grid-cols-2">
+            {(
+              [
+                ['By issue type', d.by_issue_type],
+                ['By region', d.by_region],
+              ] as const
+            ).map(([title, rows]) => (
+              <Card key={title}>
+                <CardHeader title={title} />
+                <ReportTable
+                  caption={title}
+                  rows={[...rows]}
+                  rowKey={(r) => r.label}
+                  columns={[
+                    { key: 'l', header: 'Value', render: (r) => r.label },
+                    { key: 'n', header: 'Resolved', align: 'right', render: (r) => r.resolved },
+                    { key: 'avg', header: 'Average', align: 'right', render: (r) => formatMinutes(r.avg_resolution_minutes) },
+                    { key: 'wait', header: 'Waiting', align: 'right', render: (r) => formatMinutes(r.avg_response_minutes) },
+                  ]}
+                />
+              </Card>
+            ))}
+          </div>
+        </>
+      )}
+    </Frame>
+  );
+}
+
+async function loadTurnaroundSheets(f: ReportFilters): Promise<ExportSheet[]> {
+  const d = await reportsService.turnaround(f);
+  const hours = (m: number | null | undefined) => (m === null || m === undefined ? '' : Number((m / 60).toFixed(2)));
+  return [
+    {
+      name: 'Summary',
+      head: ['Metric', 'Value'],
+      rows: [
+        ['Tickets in range', d.totals.tickets],
+        ['Resolved', d.totals.resolved],
+        ['Average turnaround', formatMinutes(d.totals.avg_resolution_minutes)],
+        ['Median turnaround', formatMinutes(d.totals.median_resolution_minutes)],
+        ['90th percentile', formatMinutes(d.totals.p90_resolution_minutes)],
+        ['Fastest', formatMinutes(d.totals.fastest_minutes)],
+        ['Slowest', formatMinutes(d.totals.slowest_minutes)],
+        ['Average waiting time', formatMinutes(d.totals.avg_response_minutes)],
+        ['Within SLA', `${d.totals.within_sla}%`],
+      ],
+    },
+    {
+      name: 'By officer',
+      head: ['Officer', 'Region', 'Resolved', 'Average (hours)', 'Median (hours)', 'Waiting (hours)', 'Within SLA %'],
+      rows: d.by_officer.map((r) => [
+        r.officer_name,
+        r.region ?? '',
+        r.resolved,
+        hours(r.avg_resolution_minutes),
+        hours(r.median_resolution_minutes),
+        hours(r.avg_response_minutes),
+        r.within_sla,
+      ]),
+    },
+    {
+      name: 'By issue type',
+      head: ['Issue type', 'Resolved', 'Average (hours)', 'Waiting (hours)'],
+      rows: d.by_issue_type.map((r) => [r.label, r.resolved, hours(r.avg_resolution_minutes), hours(r.avg_response_minutes)]),
+    },
+    {
+      name: 'Distribution',
+      head: ['Turnaround', 'Tickets'],
+      rows: d.buckets.map((b) => [b.label, b.count]),
+    },
+  ];
+}
+
+
+/* ------------------------------------------------------------------ */
+/* 7. Staff workload: ticket work and debtor calls together            */
+/* ------------------------------------------------------------------ */
+function StaffWorkload({ filters, ticketParams }: ReportProps) {
+  const navigate = useNavigate();
+  const theme = useChartTheme();
+  const q = useReport('staff-workload', filters, reportsService.staffWorkload);
+  const rows = q.data ?? [];
+
+  const totals = {
+    calls: sum(rows, (r) => r.total_calls),
+    debtorCalls: sum(rows, (r) => r.debtor_calls),
+    collected: sum(rows, (r) => r.total_collected),
+    fromDebtors: sum(rows, (r) => r.debtor_collected),
+  };
+
+  const columns: ReportColumn<StaffWorkloadRow>[] = [
+    {
+      key: 'name',
+      header: 'Officer',
+      render: (r) => (
+        <span>
+          <span className="font-medium">{r.officer_name}</span>
+          {r.region && <span className="block text-xs text-slate-500">{r.region}</span>}
+        </span>
+      ),
+      footer: 'Total',
+    },
+    { key: 'tickets', header: 'Tickets', align: 'right', render: (r) => r.tickets_assigned, footer: formatNumber(sum(rows, (r) => r.tickets_assigned)) },
+    { key: 'resolved', header: 'Resolved', align: 'right', render: (r) => r.tickets_resolved, footer: formatNumber(sum(rows, (r) => r.tickets_resolved)) },
+    { key: 'tcalls', header: 'Ticket calls', align: 'right', render: (r) => r.ticket_calls, footer: formatNumber(sum(rows, (r) => r.ticket_calls)) },
+    {
+      key: 'dcalls',
+      header: 'Debtor calls',
+      align: 'right',
+      render: (r) =>
+        r.debtor_calls ? (
+          <span>
+            {formatNumber(r.debtor_calls)}
+            <span className="block text-xs text-slate-500">{formatNumber(r.debtors_contacted)} customers</span>
+          </span>
+        ) : (
+          <span className="text-slate-300 dark:text-slate-600">0</span>
+        ),
+      footer: formatNumber(totals.debtorCalls),
+    },
+    { key: 'allcalls', header: 'All calls', align: 'right', render: (r) => <strong>{formatNumber(r.total_calls)}</strong>, footer: formatNumber(totals.calls) },
+    { key: 'tpay', header: 'Ticket payments', align: 'right', render: (r) => money(r.ticket_payments), footer: money(sum(rows, (r) => r.ticket_payments)) },
+    {
+      key: 'dpay',
+      header: 'Debtor collections',
+      align: 'right',
+      render: (r) =>
+        r.debtor_collected ? (
+          <span>
+            {money(r.debtor_collected)}
+            <span className="block text-xs text-slate-500">{formatNumber(r.debtor_payments)} payments</span>
+          </span>
+        ) : (
+          <span className="text-slate-300 dark:text-slate-600">—</span>
+        ),
+      footer: money(totals.fromDebtors),
+    },
+    { key: 'total', header: 'Total received', align: 'right', render: (r) => <strong>{money(r.total_collected)}</strong>, footer: money(totals.collected) },
+    { key: 'avg', header: 'Avg. resolution', align: 'right', render: (r) => formatMinutes(r.avg_resolution_minutes) },
+  ];
+
+  const chart = rows
+    .filter((r) => r.total_calls > 0 || r.total_collected > 0)
+    .slice(0, 12)
+    .map((r) => ({
+      name: r.officer_name.split(' ')[0],
+      Tickets: r.ticket_calls,
+      Debtors: r.debtor_calls,
+      id: r.officer_id,
+    }));
+
+  return (
+    <Frame loading={q.isLoading} error={q.error} retry={() => q.refetch()} empty={rows.length === 0}>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard label="All calls" value={formatNumber(totals.calls)} tone="blue" hint={`${formatNumber(totals.debtorCalls)} to debtors`} />
+        <StatCard label="Ticket calls" value={formatNumber(totals.calls - totals.debtorCalls)} tone="gray" />
+        <StatCard label="Total received" value={formatGHS(totals.collected)} tone="gold" hint={`${formatGHS(totals.fromDebtors)} from debtors`} />
+        <StatCard label="Officers active" value={formatNumber(rows.length)} tone="brand" />
+      </div>
+
+      <ChartCard title="Calls per officer" description="Ticket calls and debtor calls side by side" height={300} empty={chart.length === 0}>
+        <ResponsiveContainer>
+          <BarChart data={chart} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
+            <CartesianGrid stroke={theme.grid} vertical={false} />
+            <XAxis dataKey="name" tick={theme.tick} axisLine={false} tickLine={false} interval={0} />
+            <YAxis allowDecimals={false} tick={theme.tick} axisLine={false} tickLine={false} />
+            <Tooltip content={<ChartTooltip />} cursor={{ fill: theme.cursor }} />
+            <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+            <Bar dataKey="Tickets" stackId="c" fill={theme.brand} />
+            <Bar dataKey="Debtors" stackId="c" fill={theme.gold} radius={[6, 6, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartCard>
+
+      <Card>
+        <CardHeader
+          title="Work done per officer"
+          description="Tickets and debtor calls together. Click an officer to see their tickets."
+        />
+        <ReportTable
+          caption="Staff workload"
+          columns={columns}
+          rows={rows}
+          rowKey={(r) => r.officer_id}
+          onRowClick={(r) => navigate(ticketsUrl({ ...ticketParams, officer: r.officer_id }))}
+        />
+      </Card>
+    </Frame>
+  );
+}
+
+async function loadStaffWorkloadSheets(f: ReportFilters): Promise<ExportSheet[]> {
+  const rows = await reportsService.staffWorkload(f);
+  return [
+    {
+      name: 'Staff workload',
+      head: [
+        'Officer', 'Region', 'Tickets assigned', 'Tickets resolved', 'Tickets active', 'Tickets overdue',
+        'Ticket calls', 'Debtor calls', 'Customers contacted', 'All calls',
+        'Ticket payments (GHS)', 'Debtor collections (GHS)', 'Debtor payments', 'Total received (GHS)',
+        'Avg resolution (min)',
+      ],
+      rows: rows.map((r) => [
+        r.officer_name, r.region ?? '', r.tickets_assigned, r.tickets_resolved, r.tickets_active, r.tickets_overdue,
+        r.ticket_calls, r.debtor_calls, r.debtors_contacted, r.total_calls,
+        pdfMoney(r.ticket_payments), pdfMoney(r.debtor_collected), r.debtor_payments, pdfMoney(r.total_collected),
+        r.avg_resolution_minutes ?? '',
+      ]),
+      foot: [
+        'TOTAL', '',
+        sum(rows, (r) => r.tickets_assigned), sum(rows, (r) => r.tickets_resolved),
+        sum(rows, (r) => r.tickets_active), sum(rows, (r) => r.tickets_overdue),
+        sum(rows, (r) => r.ticket_calls), sum(rows, (r) => r.debtor_calls),
+        sum(rows, (r) => r.debtors_contacted), sum(rows, (r) => r.total_calls),
+        pdfMoney(sum(rows, (r) => r.ticket_payments)), pdfMoney(sum(rows, (r) => r.debtor_collected)),
+        sum(rows, (r) => r.debtor_payments), pdfMoney(sum(rows, (r) => r.total_collected)), '',
+      ],
     },
   ];
 }
@@ -564,11 +1304,53 @@ export const REPORTS: ReportDefinition[] = [
     Component: PaymentsByRegion,
   },
   {
+    key: 'payment-status-region',
+    title: 'Payment status per region',
+    description: 'Receivables, advance payments and new business per region, debtor collections included',
+    load: loadPaymentStatusSheets,
+    Component: PaymentStatusByRegion,
+  },
+  {
+    key: 'outbound-region',
+    title: 'Outbound calls per region',
+    description: 'Ticket calls and debtor calls that together make up the outbound calls',
+    load: loadOutboundSheets,
+    Component: OutboundByRegion,
+  },
+  {
+    key: 'debtor-money-region',
+    title: 'Debtor collections per region',
+    description: 'Money recovered from debtors, and who paid, for each region',
+    load: loadDebtorMoneySheets,
+    Component: DebtorMoneyByRegion,
+  },
+  {
     key: 'officer-performance',
     title: 'Officer performance',
-    description: 'Workload and results per officer and type of contact',
+    description: 'Workload and results per officer, tickets and debtor calls together',
     load: loadOfficerSheets,
     Component: OfficerPerformance,
+  },
+  {
+    key: 'turnaround',
+    title: 'Turnaround time',
+    description: 'How many minutes it takes to resolve a ticket, and where the time goes',
+    load: loadTurnaroundSheets,
+    Component: Turnaround,
+  },
+  {
+    key: 'staff-workload',
+    title: 'Staff workload',
+    description: 'Tickets and debtor calls per officer, with everything collected',
+    load: loadStaffWorkloadSheets,
+    Component: StaffWorkload,
+  },
+  {
+    key: 'forwarded',
+    title: 'Forwarded to the districts',
+    description: 'Work sent down to District Operation Officers, by region, district, officer and status',
+    load: loadForwardedSheets,
+    Component: ({ filters, ticketParams }) => <ForwardedWork filters={filters} ticketParams={ticketParams} />,
   },
   {
     key: 'sla-aging',
@@ -579,4 +1361,23 @@ export const REPORTS: ReportDefinition[] = [
   },
 ];
 
-export { statusSheet, loadIssueSheets, loadPaymentSheets, loadOfficerSheets, loadSlaSheets };
+export {
+  statusSheet,
+  officerSheet,
+  outboundSheet,
+  debtorMoneySheet,
+  paymentStatusSheets,
+  pivotPaymentStatus,
+  pivotIssues,
+  debtorCallMap,
+  contactTypesPresent,
+  loadIssueSheets,
+  loadPaymentSheets,
+  loadPaymentStatusSheets,
+  loadOutboundSheets,
+  loadDebtorMoneySheets,
+  loadOfficerSheets,
+  loadSlaSheets,
+  loadTurnaroundSheets,
+  loadStaffWorkloadSheets,
+};

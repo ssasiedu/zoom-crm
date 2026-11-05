@@ -11,7 +11,7 @@ import { useDialogBehaviour } from '@/components/ui/Modal';
 import { cn } from '@/utils/cn';
 import { formatDate } from '@/utils/format';
 import { formatPhone } from '@/utils/phone';
-import { NAV_ITEMS } from './nav';
+import { NAV_ITEMS, navVisible } from './nav';
 
 interface Entry {
   key: string;
@@ -51,9 +51,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
       onClose();
       navigate(path);
     };
-    const pages: Entry[] = NAV_ITEMS.filter((i) =>
-      i.officerOnly ? Boolean(officerId) || role === 'dm_officer' : i.permission ? can(i.permission) : true,
-    )
+    const pages: Entry[] = NAV_ITEMS.filter((i) => navVisible(i, { role, officerId, can }))
       .filter((i) => !term || i.label.toLowerCase().includes(term.toLowerCase()))
       .map((i) => ({ key: `nav-${i.to}`, label: i.label, hint: 'Go to page', icon: <i.icon className="size-4" />, run: go(i.to) }));
     const tickets: Entry[] =

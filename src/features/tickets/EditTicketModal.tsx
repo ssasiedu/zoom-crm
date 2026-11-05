@@ -43,12 +43,14 @@ export function EditTicketDrawer({ ticket, open, onClose }: { ticket: TicketRow;
       title={`Edit ${ticket.ticket_number}`}
       subtitle="Changes are recorded in the ticket history."
       footer={
-        <div className="flex justify-end gap-2">
-          <Button variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
+        /* Left-aligned: hosting badges and chat widgets sit in the
+           bottom-right corner and used to cover the save button. */
+        <div className="flex flex-wrap justify-start gap-2 pr-40 sm:pr-48">
           <Button loading={update.isPending} onClick={onSubmit}>
             Save changes
+          </Button>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
           </Button>
         </div>
       }
