@@ -13,7 +13,7 @@ import { qk } from '@/lib/queryClient';
 import { errorMessage } from '@/services/errors';
 import { officersService } from '@/services/officers';
 import { profilesService } from '@/services/profiles';
-import type { Profile, Role } from '@/types';
+import type { Officer, OfficerKind, Profile, Role } from '@/types';
 import { Avatar, Badge, Button, Card, DataTable, ErrorState, Field, Input, Modal, Select, Switch } from '@/components/ui';
 import { formatDate } from '@/utils/format';
 
@@ -30,6 +30,29 @@ const inviteSchema = z
   })
   .refine((v) => v.mode === 'invite' || v.password.length >= 8, { path: ['password'], message: 'At least 8 characters' });
 type InviteValues = z.infer<typeof inviteSchema>;
+
+/**
+ * Three roles only work once the user is joined to an officer record:
+ * that link is what the database reads to decide which tickets are
+ * theirs. Each needs a different kind of record.
+ */
+const OFFICER_BACKED: Partial<Record<Role, OfficerKind>> = {
+  dm_officer: 'dm_officer',
+  district_officer: 'district_officer',
+  regional_manager: 'regional_manager',
+};
+
+/** Officer records of the kind this role needs, labelled with where they work */
+function officerOptions(officers: Officer[], role: Role, selfProfileId?: string) {
+  const kind = OFFICER_BACKED[role];
+  return officers
+    .filter((o) => (o.kind ?? 'dm_officer') === kind && o.is_active)
+    .map((o) => {
+      const where = o.district ?? o.region;
+      const taken = o.profile_id && o.profile_id !== selfProfileId ? ' — already has a login' : '';
+      return { value: o.id, label: `${o.full_name}${where ? ` (${where})` : ''}${taken}` };
+    });
+}
 
 function InviteDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
@@ -98,14 +121,20 @@ function InviteDialog({ open, onClose }: { open: boolean; onClose: () => void })
         <Field label="Region" htmlFor="u-region">
           <Select id="u-region" placeholder="No region" options={toOptions(lookups.regions)} {...register('region')} />
         </Field>
-        {role === 'dm_officer' && (
-          <Field label="Link to officer record" htmlFor="u-officer" hint="Tickets assigned to this officer become visible to the user.">
-            <Select
-              id="u-officer"
-              placeholder="Choose officer"
-              options={officers.map((o) => ({ value: o.id, label: `${o.full_name}${o.profile_id ? ' (already linked)' : ''}` }))}
-              {...register('officer_id')}
-            />
+        {OFFICER_BACKED[role] && (
+          <Field
+            label="Link to officer record"
+            htmlFor="u-officer"
+            required
+            hint={
+              role === 'district_officer'
+                ? 'Which District Operation Officer this is. Without it they can sign in but no work reaches them.'
+                : role === 'regional_manager'
+                  ? 'Which regional manager this is. Without it they cannot see their region\u2019s forwarded work.'
+                  : 'Tickets assigned to this officer become visible to the user.'
+            }
+          >
+            <Select id="u-officer" placeholder="Choose officer" options={officerOptions(officers, role)} {...register('officer_id')} />
           </Field>
         )}
         <Field label="Account setup" htmlFor="u-mode" className="sm:col-span-2">
@@ -198,18 +227,24 @@ function EditUserDialog({ profile, onClose }: { profile: Profile | null; onClose
         <Field label="Region" htmlFor="e-region">
           <Select id="e-region" placeholder="No region" value={region} onChange={(e) => setRegion(e.target.value)} options={toOptions(lookups.regions)} />
         </Field>
-        <Field label="Linked officer" htmlFor="e-officer" className="sm:col-span-2" hint="DM Officers see tickets assigned to their linked officer record.">
-          <Select
-            id="e-officer"
-            placeholder="Not linked"
-            value={officerId}
-            onChange={(e) => setOfficerId(e.target.value)}
-            options={officers.map((o) => ({
-              value: o.id,
-              label: `${o.full_name}${o.profile_id && o.profile_id !== profile?.id ? ' (linked to another user)' : ''}`,
-            }))}
-          />
-        </Field>
+        {OFFICER_BACKED[role] ? (
+          <Field
+            label="Linked officer"
+            htmlFor="e-officer"
+            className="sm:col-span-2"
+            hint="This link is what decides which work the user can see. Without it they sign in to an empty screen."
+          >
+            <Select
+              id="e-officer"
+              placeholder="Not linked"
+              value={officerId}
+              onChange={(e) => setOfficerId(e.target.value)}
+              options={officerOptions(officers, role, profile?.id)}
+            />
+          </Field>
+        ) : (
+          <p className="text-xs text-slate-500 sm:col-span-2">This role does not need an officer record.</p>
+        )}
       </div>
     </Modal>
   );
@@ -266,7 +301,13 @@ export function UsersAdmin() {
         id: 'officer',
         header: 'Officer record',
         enableSorting: false,
-        cell: ({ row }) => officers.find((o) => o.profile_id === row.original.id)?.full_name ?? (row.original.role === 'dm_officer' ? <span className="text-xs font-medium text-amber-700">Not linked</span> : '—'),
+        cell: ({ row }) =>
+          officers.find((o) => o.profile_id === row.original.id)?.full_name ??
+          (OFFICER_BACKED[row.original.role] ? (
+            <span className="text-xs font-medium text-amber-700">Not linked</span>
+          ) : (
+            '—'
+          )),
       },
       { id: 'created', header: 'Added', accessorKey: 'created_at', cell: ({ row }) => formatDate(row.original.created_at) },
       {

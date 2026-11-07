@@ -63,7 +63,16 @@ export interface DistrictOfficerOption {
 export interface RegionDistrictRow {
   region: string;
   sort_order: number;
-  managers: { id: string; full_name: string; phone: string | null; email: string | null; is_active: boolean }[];
+  managers: {
+    id: string;
+    full_name: string;
+    phone: string | null;
+    email: string | null;
+    is_active: boolean;
+    /** a user account is joined to this officer record */
+    has_login: boolean;
+    login_active: boolean;
+  }[];
   districts: {
     district: string;
     sort_order: number;
@@ -75,6 +84,11 @@ export interface RegionDistrictRow {
       email: string | null;
       is_active: boolean;
       manager_name: string | null;
+      /** a user account is joined to this officer record */
+      has_login: boolean;
+      login_active: boolean;
+      /** the address that account signs in with, if there is one */
+      login_email: string | null;
     }[];
   }[];
 }

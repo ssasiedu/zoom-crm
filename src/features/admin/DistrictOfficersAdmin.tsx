@@ -537,6 +537,8 @@ function RegionBlock({
                             {o.manager_name ? ` · ${o.manager_name}` : ''}
                           </span>
                           {!o.is_active && <Badge tone="gray">Inactive</Badge>}
+                          {o.is_active && !o.has_login && <Badge tone="amber">No login yet</Badge>}
+                          {o.has_login && !o.login_active && <Badge tone="red">Login disabled</Badge>}
                         </li>
                       ))}
                     </ul>
@@ -565,10 +567,15 @@ export function DistrictOfficersAdmin() {
 
   const totals = useMemo(() => {
     const rows = tree.data ?? [];
+    const everyone = [
+      ...rows.flatMap((r) => r.managers),
+      ...rows.flatMap((r) => r.districts.flatMap((d) => d.officers)),
+    ];
     return {
       officers: rows.reduce((n, r) => n + r.districts.reduce((m, d) => m + d.officers.length, 0), 0),
       managers: rows.reduce((n, r) => n + r.managers.length, 0),
       regionsWithoutManager: rows.filter((r) => r.managers.length === 0).length,
+      withoutLogin: everyone.filter((o) => o.is_active && !o.has_login).length,
     };
   }, [tree.data]);
 
@@ -596,7 +603,7 @@ export function DistrictOfficersAdmin() {
             </div>
           }
         />
-        <div className="grid gap-3 p-4 sm:grid-cols-3 sm:p-5">
+        <div className="grid gap-3 p-4 sm:grid-cols-4 sm:p-5">
           <div className="rounded-lg border p-3 dark:border-slate-800">
             <p className="text-xs text-slate-500">District Operation Officers</p>
             <p className="text-xl font-bold tabular-nums">{totals.officers}</p>
@@ -611,12 +618,23 @@ export function DistrictOfficersAdmin() {
               {totals.regionsWithoutManager}
             </p>
           </div>
+          <div className="rounded-lg border p-3 dark:border-slate-800">
+            <p className="text-xs text-slate-500">Cannot sign in yet</p>
+            <p className={cn('text-xl font-bold tabular-nums', totals.withoutLogin > 0 && 'text-amber-600')}>
+              {totals.withoutLogin}
+            </p>
+          </div>
         </div>
-        <p className="border-t px-4 py-3 text-xs text-slate-500 sm:px-5 dark:border-slate-800">
-          Officers added here can be given a login under Users: pick the <strong>District Operation Officer</strong> role
-          and link them to this officer record. Give them a real email address if you want them to be able to reset their
-          own password — a login built from a phone number can only be reset by an administrator.
-        </p>
+        <div className="border-t px-4 py-3 text-xs text-slate-500 sm:px-5 dark:border-slate-800">
+          <p className="font-medium text-slate-700 dark:text-slate-300">Adding someone here does not give them a login.</p>
+          <p className="mt-1">
+            This page records who covers which district, and the phone number the forwarding SMS goes to. To let them sign
+            in, go to <strong>Users → Add user</strong>, choose the <strong>District Operation Officer</strong> role and
+            pick their name under <em>Link to officer record</em>. Without that link they can sign in but no work reaches
+            them. They sign in with an email address and password, either from an emailed invitation or a temporary
+            password you set; only someone with a real email address can reset their own password.
+          </p>
+        </div>
       </Card>
 
       {tree.isLoading ? (
