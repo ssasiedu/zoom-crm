@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, ChevronRight, MapPin, Plus, Upload, UserCog, Users } from 'lucide-react';
+import { ChevronDown, ChevronRight, KeyRound, MapPin, Plus, Upload, UserCog, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { useLookups } from '@/hooks/useLookups';
 import { qk } from '@/lib/queryClient';
 import { errorMessage } from '@/services/errors';
 import { lookupsService } from '@/services/lookups';
 import { officersService, type OfficerInput } from '@/services/officers';
+import { profilesService } from '@/services/profiles';
 import type { Officer, RegionDistrictRow } from '@/types';
 import {
   Badge,
@@ -26,6 +27,133 @@ import {
 } from '@/components/ui';
 import { cn } from '@/utils/cn';
 import { formatPhone, isValidGhanaPhone, toLocalPhone } from '@/utils/phone';
+
+/** The same test the invite function applies server-side */
+function isEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+/* ------------------------------------------------------------------ */
+/* Giving an officer a login                                           */
+/* ------------------------------------------------------------------ */
+interface LoginTarget {
+  id: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  region: string | null;
+  district?: string | null;
+  kind: 'district_officer' | 'regional_manager';
+}
+
+/**
+ * Creates the user account for an officer record and joins the two in
+ * one step, so nobody has to remember that an officer and a login are
+ * different things. The officer's own email address is the login, which
+ * is what lets them reset their own password without an administrator.
+ */
+function CreateLoginDialog({ target, onClose }: { target: LoginTarget | null; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const [mode, setMode] = useState<'invite' | 'password'>('invite');
+  const [password, setPassword] = useState('');
+  const email = target?.email ?? '';
+
+  const create = useMutation({
+    mutationFn: () => {
+      if (!target) throw new Error('No officer chosen');
+      return profilesService.invite({
+        email,
+        full_name: target.full_name,
+        role: target.kind,
+        region: target.district ? null : target.region,
+        phone: target.phone,
+        officer_id: target.id,
+        mode,
+        password: mode === 'password' ? password : undefined,
+      });
+    },
+    onSuccess: () => {
+      toast.success(
+        mode === 'invite' ? `Invitation sent to ${email}` : `${target?.full_name} can now sign in`,
+        {
+          description:
+            mode === 'invite'
+              ? 'They set their own password from the link in that email.'
+              : 'Pass the temporary password on securely and ask them to change it.',
+          duration: 8000,
+        },
+      );
+      queryClient.invalidateQueries({ queryKey: qk.officers });
+      queryClient.invalidateQueries({ queryKey: qk.profiles });
+      setPassword('');
+      onClose();
+    },
+    onError: (err) => toast.error(errorMessage(err)),
+  });
+
+  const ready = isEmail(email) && (mode === 'invite' || password.length >= 8);
+
+  return (
+    <Modal
+      open={!!target}
+      onClose={onClose}
+      title={`Give ${target?.full_name ?? ''} a login`}
+      description={
+        target?.district
+          ? `District Operation Officer for ${target.district}`
+          : `Regional manager for ${target?.region ?? 'no region'}`
+      }
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button loading={create.isPending} disabled={!ready} onClick={() => create.mutate()}>
+            {mode === 'invite' ? 'Send invitation' : 'Create account'}
+          </Button>
+        </>
+      }
+    >
+      {!isEmail(email) ? (
+        <p className="text-sm text-amber-700 dark:text-amber-400">
+          {target?.full_name} has no email address on their record, and an email address is what they sign in with. Edit
+          the officer first and add one.
+        </p>
+      ) : (
+        <div className="space-y-4">
+          <Field label="They will sign in as" htmlFor="l-email">
+            <Input id="l-email" value={email} readOnly className="bg-slate-50 dark:bg-slate-800/60" />
+          </Field>
+          <Field label="Account setup" htmlFor="l-mode">
+            <Select
+              id="l-mode"
+              clearable={false}
+              value={mode}
+              onChange={(e) => setMode(e.target.value as 'invite' | 'password')}
+              options={[
+                { value: 'invite', label: 'Email them an invitation link (they set their own password)' },
+                { value: 'password', label: 'Set a temporary password now' },
+              ]}
+            />
+          </Field>
+          {mode === 'password' && (
+            <Field
+              label="Temporary password"
+              htmlFor="l-pass"
+              required
+              hint="At least 8 characters. Share it securely and ask them to change it."
+            >
+              <Input id="l-pass" type="text" autoComplete="off" value={password} onChange={(e) => setPassword(e.target.value)} />
+            </Field>
+          )}
+          <p className="text-xs text-slate-500">
+            This also joins the account to their officer record, which is what decides the work they see.
+          </p>
+        </div>
+      )}
+    </Modal>
+  );
+}
 
 /* ------------------------------------------------------------------ */
 /* Adding one officer                                                  */
@@ -106,9 +234,11 @@ function OfficerDialog({
   });
 
   const phoneBad = phone.trim() !== '' && !isValidGhanaPhone(phone);
+  const emailBad = !isEmail(email);
   const ready =
     name.trim().length > 1 &&
     !phoneBad &&
+    !emailBad &&
     (kind === 'regional_manager' ? Boolean(region) : Boolean(district));
 
   return (
@@ -147,12 +277,29 @@ function OfficerDialog({
           label="Phone"
           htmlFor="o-phone"
           error={phoneBad ? 'Use 0XXXXXXXXX or +233XXXXXXXXX' : undefined}
-          hint="Used for their login and for SMS alerts"
+          hint="Where the forwarding SMS goes"
         >
           <Input id="o-phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0241234567" invalid={phoneBad} />
         </Field>
-        <Field label="Email (optional)" htmlFor="o-email" hint="With a real email they can reset their own password">
-          <Input id="o-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <Field
+          label="Email"
+          htmlFor="o-email"
+          required
+          error={email.trim() !== '' && emailBad ? 'Enter a valid email address' : undefined}
+          hint={
+            officer?.profile_id
+              ? 'They already have a login. Changing this does not change the address they sign in with — do that under Users.'
+              : 'This is what they sign in with, and how they reset their own password'
+          }
+        >
+          <Input
+            id="o-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="kwame.asante@zoomlion.com"
+            invalid={email.trim() !== '' && emailBad}
+          />
         </Field>
 
         {kind === 'regional_manager' ? (
@@ -244,6 +391,8 @@ function parseOfficerLines(text: string, districts: string[]): ParsedRow[] {
       if (!name) row.problem = 'No name';
       else if (!district) row.problem = 'No district';
       else if (!canonical) row.problem = `Unknown district "${district}"`;
+      else if (!email) row.problem = 'No email — they could not sign in';
+      else if (!isEmail(email)) row.problem = `Bad email "${email}"`;
       else if (phone && !isValidGhanaPhone(phone)) row.problem = `Bad phone "${phone}"`;
       return row;
     })
@@ -289,7 +438,12 @@ function BulkLoadDialog({ open, onClose }: { open: boolean; onClose: () => void 
           manager_officer_id: manager || null,
         })),
       );
-      if (created > 0) toast.success(`${created} District Operation Officer${created === 1 ? '' : 's'} loaded`);
+      if (created > 0) {
+        toast.success(`${created} District Operation Officer${created === 1 ? '' : 's'} loaded`, {
+          description: 'Use “Give them a login” against each one to create their account.',
+          duration: 8000,
+        });
+      }
       if (errors.length > 0) {
         toast.error(`${errors.length} could not be loaded`, { description: `${errors[0].name}: ${errors[0].message}` });
       }
@@ -311,7 +465,7 @@ function BulkLoadDialog({ open, onClose }: { open: boolean; onClose: () => void 
       onClose={onClose}
       size="xl"
       title="Load District Operation Officers"
-      description="Paste one officer per line: name, phone, district, email. Copying four columns out of Excel works as it is."
+      description="Paste one officer per line: name, phone, district, email. Copying four columns out of Excel works as it is. The email is what each officer signs in with, so every line needs one."
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
@@ -338,7 +492,7 @@ function BulkLoadDialog({ open, onClose }: { open: boolean; onClose: () => void 
           rows={8}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder={'KWAME ASANTE\t0241234567\tKorle-Klottey\tkwame@example.com\nADWOA BOATENG\t0209876543\tAblekuma North'}
+          placeholder={'KWAME ASANTE\t0241234567\tKorle-Klottey\tkwame.asante@zoomlion.com\nADWOA BOATENG\t0209876543\tAblekuma North\tadwoa.boateng@zoomlion.com'}
           className="font-mono text-xs"
         />
       </Field>
@@ -378,8 +532,9 @@ function BulkLoadDialog({ open, onClose }: { open: boolean; onClose: () => void 
       )}
       {bad.length > 0 && (
         <p className="mt-3 text-xs text-rose-700 dark:text-rose-400">
-          {bad.length} line{bad.length === 1 ? '' : 's'} will be skipped. Districts must match the list under Dropdown
-          values — add the district first if it is missing.
+          {bad.length} line{bad.length === 1 ? '' : 's'} will be skipped. Every officer needs an email address, because
+          that is what they sign in with, and the district must match the list under Dropdown values — add the district
+          first if it is missing.
         </p>
       )}
     </Modal>
@@ -450,11 +605,13 @@ function RegionBlock({
   onAddOfficer,
   onAddDistricts,
   onEdit,
+  onCreateLogin,
 }: {
   row: RegionDistrictRow;
   onAddOfficer: (district: string) => void;
   onAddDistricts: (region: string) => void;
   onEdit: (id: string) => void;
+  onCreateLogin: (t: LoginTarget) => void;
 }) {
   const officerCount = row.districts.reduce((n, d) => n + d.officers.length, 0);
   const covered = row.districts.filter((d) => d.officers.length > 0).length;
@@ -486,6 +643,35 @@ function RegionBlock({
 
       {open && (
         <div className="border-t dark:border-slate-800">
+          {row.managers.length > 0 && (
+            <ul className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-b px-4 py-2.5 text-sm sm:px-5 dark:border-slate-800">
+              {row.managers.map((m) => (
+                <li key={m.id} className="flex items-center gap-2">
+                  <span className="font-medium">{m.full_name}</span>
+                  <span className="text-xs text-slate-500">{m.email ?? 'no email'}</span>
+                  {m.is_active && !m.has_login && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      leftIcon={<KeyRound className="size-3.5" />}
+                      onClick={() =>
+                        onCreateLogin({
+                          id: m.id,
+                          full_name: m.full_name,
+                          email: m.email,
+                          phone: m.phone,
+                          region: row.region,
+                          kind: 'regional_manager',
+                        })
+                      }
+                    >
+                      Give them a login
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
           <div className="flex flex-wrap gap-2 px-4 py-2.5 sm:px-5">
             <Button size="sm" variant="outline" leftIcon={<Plus className="size-4" />} onClick={() => onAddOfficer('')}>
               Add officer
@@ -537,8 +723,27 @@ function RegionBlock({
                             {o.manager_name ? ` · ${o.manager_name}` : ''}
                           </span>
                           {!o.is_active && <Badge tone="gray">Inactive</Badge>}
-                          {o.is_active && !o.has_login && <Badge tone="amber">No login yet</Badge>}
                           {o.has_login && !o.login_active && <Badge tone="red">Login disabled</Badge>}
+                          {o.is_active && !o.has_login && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              leftIcon={<KeyRound className="size-3.5" />}
+                              onClick={() =>
+                                onCreateLogin({
+                                  id: o.id,
+                                  full_name: o.full_name,
+                                  email: o.email,
+                                  phone: o.phone,
+                                  region: row.region,
+                                  district: d.district,
+                                  kind: 'district_officer',
+                                })
+                              }
+                            >
+                              Give them a login
+                            </Button>
+                          )}
                         </li>
                       ))}
                     </ul>
@@ -560,6 +765,7 @@ export function DistrictOfficersAdmin() {
   >(null);
   const [bulk, setBulk] = useState(false);
   const [districtsFor, setDistrictsFor] = useState<string | null>(null);
+  const [loginFor, setLoginFor] = useState<LoginTarget | null>(null);
 
   const tree = useQuery({ queryKey: [...qk.officers, 'tree'], queryFn: officersService.regionTree });
   const all = useQuery({ queryKey: qk.officers, queryFn: officersService.list });
@@ -628,11 +834,11 @@ export function DistrictOfficersAdmin() {
         <div className="border-t px-4 py-3 text-xs text-slate-500 sm:px-5 dark:border-slate-800">
           <p className="font-medium text-slate-700 dark:text-slate-300">Adding someone here does not give them a login.</p>
           <p className="mt-1">
-            This page records who covers which district, and the phone number the forwarding SMS goes to. To let them sign
-            in, go to <strong>Users → Add user</strong>, choose the <strong>District Operation Officer</strong> role and
-            pick their name under <em>Link to officer record</em>. Without that link they can sign in but no work reaches
-            them. They sign in with an email address and password, either from an emailed invitation or a temporary
-            password you set; only someone with a real email address can reset their own password.
+            This page records who covers which district, their email address, and the phone number the forwarding SMS
+            goes to. Once an officer is on the list, use <strong>Give them a login</strong> beside their name: that
+            creates their account, joins it to this record so their work reaches them, and either emails them an
+            invitation or sets a temporary password you pass on. They sign in with their own email address, which is
+            also how they reset their own password without needing an administrator.
           </p>
         </div>
       </Card>
@@ -660,6 +866,7 @@ export function DistrictOfficersAdmin() {
               }
               onAddDistricts={(region) => setDistrictsFor(region)}
               onEdit={(id) => setDialog({ kind: 'district_officer', id })}
+              onCreateLogin={setLoginFor}
             />
           ))}
         </div>
@@ -675,6 +882,7 @@ export function DistrictOfficersAdmin() {
           presetDistrict={dialog.district}
         />
       )}
+      <CreateLoginDialog target={loginFor} onClose={() => setLoginFor(null)} />
       <BulkLoadDialog open={bulk} onClose={() => setBulk(false)} />
       {districtsFor && <AddDistrictDialog open onClose={() => setDistrictsFor(null)} region={districtsFor} />}
     </div>
