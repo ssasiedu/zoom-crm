@@ -1,7 +1,7 @@
-import { FIELD_LABELS } from '@/lib/constants';
+import { APP_NAME, FIELD_LABELS } from '@/lib/constants';
 import type { TicketRow } from '@/types';
 import { exportToCsv, exportToExcel, exportToPdf, type Cell } from '@/utils/export';
-import { formatDate, formatDateTime, formatGHS } from '@/utils/format';
+import { formatDate, formatDateTime, formatGHS, formatMinutes, minutesToHours } from '@/utils/format';
 import { toLocalPhone } from '@/utils/phone';
 
 /** Column order matches the business spreadsheet */
@@ -28,6 +28,8 @@ export const EXPORT_COLUMNS: { key: keyof TicketRow; label: string; pdf?: boolea
   { key: 'officer_name', label: FIELD_LABELS.officer_name, pdf: true },
   { key: 'reason_for_open_status', label: FIELD_LABELS.reason_for_open_status },
   { key: 'priority', label: FIELD_LABELS.priority },
+  { key: 'resolution_minutes', label: 'Resolution time (hours)' },
+  { key: 'response_minutes', label: 'Waiting time (hours)' },
 ];
 
 function cell(t: TicketRow, key: keyof TicketRow, forPdf: boolean): Cell {
@@ -43,6 +45,9 @@ function cell(t: TicketRow, key: keyof TicketRow, forPdf: boolean): Cell {
       return toLocalPhone(v as string);
     case 'payment_amount':
       return forPdf ? formatGHS(v, { plain: true }) : Number(v);
+    case 'resolution_minutes':
+    case 'response_minutes':
+      return forPdf ? formatMinutes(v as number) : (minutesToHours(v as number) as number);
     default:
       return String(v);
   }
@@ -50,7 +55,7 @@ function cell(t: TicketRow, key: keyof TicketRow, forPdf: boolean): Cell {
 
 export type ExportFormat = 'xlsx' | 'csv' | 'pdf';
 
-export function exportTickets(rows: TicketRow[], fmt: ExportFormat, subtitle?: string) {
+export function exportTickets(rows: TicketRow[], fmt: ExportFormat, subtitle?: string, companyName = APP_NAME) {
   const cols = fmt === 'pdf' ? EXPORT_COLUMNS.filter((c) => c.pdf) : EXPORT_COLUMNS;
   const total = rows.reduce((s, r) => s + (r.payment_amount ? Number(r.payment_amount) : 0), 0);
   const sheet = {
@@ -63,7 +68,7 @@ export function exportTickets(rows: TicketRow[], fmt: ExportFormat, subtitle?: s
   };
   const options = {
     filename: 'tickets',
-    title: 'DM CRM — Tickets',
+    title: `${companyName} — Tickets`,
     subtitle,
     sheets: [sheet],
   };

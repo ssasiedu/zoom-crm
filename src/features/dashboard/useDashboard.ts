@@ -28,11 +28,15 @@ export function useDashboardData(filters: ReportFilters) {
     kpis: useQuery({ queryKey: key('kpis'), queryFn: () => reportsService.kpis(filters), enabled }),
     trend: useQuery({ queryKey: key('trend', bucket), queryFn: () => reportsService.trend(filters, bucket), enabled }),
     status: breakdown('status'),
-    contactType: breakdown('contact_type'),
+    /* Debtor calls are outbound calls too, so the mix and the headline
+       totals below count them alongside tickets. */
+    contactType: useQuery({ queryKey: key('contact-mix'), queryFn: () => reportsService.contactMix(filters), enabled }),
+    combined: useQuery({ queryKey: key('combined'), queryFn: () => reportsService.combined(filters), enabled }),
     issueType: breakdown('issue_type'),
     communities: breakdown('community', 10),
     regions: useQuery({ queryKey: key('regions'), queryFn: () => reportsService.statusByRegion(filters), enabled }),
     officers: useQuery({ queryKey: key('officers'), queryFn: () => reportsService.officerPerformance(filters), enabled }),
+    turnaround: useQuery({ queryKey: key('turnaround'), queryFn: () => reportsService.turnaround(filters), enabled }),
     activity: useQuery({ queryKey: [...qk.dashboard, 'activity'], queryFn: () => activityService.recent(10), enabled }),
   };
 }

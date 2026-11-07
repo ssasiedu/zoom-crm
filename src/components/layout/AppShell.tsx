@@ -9,7 +9,7 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { Sidebar } from './Sidebar';
 import { TopBar } from './TopBar';
 
-const COLLAPSE_KEY = 'dm-crm:sidebar-collapsed';
+const COLLAPSE_KEY = 'zoomlion-crm:sidebar-collapsed';
 
 export function AppShell() {
   const location = useLocation();

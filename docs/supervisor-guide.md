@@ -32,8 +32,16 @@ You can edit all client and issue details and **override the DUE DATE** (for exa
 - **Reports → SLA & overdue ageing** buckets overdue tickets by how late they are (0–2, 3–7, 8–14, 15+ days) per region and per officer. Click a region row to open those tickets.
 - Overdue tickets require a REASON FOR OPEN STATUS from the officer — use it in follow-ups.
 
+## Debt recovery
+
+**Debtor Lists** holds the monthly list of customers who owe money: upload it, assign accounts to officers, and watch collections come in. See the [debt recovery guide](debt-recovery-guide.md) for the full cycle.
+
+## Turnaround time
+
+Every ticket now records two timings: **waiting time** (raised → first worked on) and **turnaround time** (raised → completed). The dashboard shows the averages, and **Reports → Turnaround time** breaks them down by officer, issue type, region and month, with a distribution showing how many tickets are resolved within an hour, within a day, and so on. Use the median rather than the average when a handful of very old tickets distort the picture.
+
 ## Reports
-**Reports** has six views: status per region, issue type per region, payments per region, officer performance per type of contact, SLA ageing and the monthly report. All share the filter bar. **Export** gives Excel (one sheet per table) or a branded PDF.
+**Reports** has seven views: status per region, issue type per region, payments per region, officer performance per type of contact, turnaround time, SLA ageing and the monthly report. All share the filter bar. **Export** gives Excel (one sheet per table) or a branded PDF.
 
 The **Monthly report** tab summarises a whole month (KPIs, channels, issue types, regions, officers, payments, ageing). Pick the month and click **Download PDF** — ideal for management meetings.
 

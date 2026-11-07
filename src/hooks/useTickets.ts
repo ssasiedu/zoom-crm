@@ -6,10 +6,10 @@ import { ticketsService, type ListParams } from '@/services/tickets';
 import type { TicketRow, TicketUpdate } from '@/types';
 import { useAuth } from './useAuth';
 
-export function useTicketList(params: ListParams, scope: 'all' | 'mine' = 'all') {
+export function useTicketList(params: ListParams, scope: 'all' | 'mine' | 'field' = 'all') {
   const { session } = useAuth();
   return useQuery({
-    queryKey: [...(scope === 'mine' ? qk.myTickets : qk.tickets), 'list', params],
+    queryKey: [...(scope === 'all' ? qk.tickets : qk.myTickets), scope, 'list', params],
     queryFn: () => ticketsService.list(params),
     enabled: Boolean(session),
     placeholderData: keepPreviousData,

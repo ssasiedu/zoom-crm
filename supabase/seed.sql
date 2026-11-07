@@ -278,3 +278,37 @@ begin
 
   raise notice 'Generated % sample tickets', (select count(*) from public.tickets);
 end $$;
+
+-- ---------------------------------------------------------------------
+-- Turnaround figures for the sample tickets.
+--
+-- The timing trigger fills these in as real tickets move through their
+-- statuses. Sample tickets are inserted already finished, so derive the
+-- first response from the backdated activity written above; without this
+-- the waiting-time charts would be empty on a fresh install.
+-- ---------------------------------------------------------------------
+do $$
+begin
+  if to_regclass('public.tickets') is null
+     or not exists (select 1 from information_schema.columns
+                    where table_schema = 'public' and table_name = 'tickets'
+                      and column_name = 'first_response_at') then
+    return;  -- turnaround migration not applied yet
+  end if;
+
+  update public.tickets t
+     set first_response_at = coalesce(
+           (select min(a.created_at) from public.ticket_activity a
+             where a.ticket_id = t.id and a.action = 'status_changed'),
+           t.resolved_at,
+           t.completion_date)
+   where t.first_response_at is null;
+
+  update public.tickets t
+     set response_minutes = public.minutes_between(t.date_opened, t.first_response_at),
+         resolution_minutes = case
+           when t.status in ('Resolved', 'Closed')
+             then public.minutes_between(t.date_opened, coalesce(t.completion_date, t.resolved_at))
+           else null end
+   where t.response_minutes is null or t.resolution_minutes is null;
+end $$;

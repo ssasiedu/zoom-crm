@@ -1,14 +1,27 @@
 import { supabase } from '@/lib/supabase';
 import type {
   BreakdownItem,
+  CombinedTotals,
+  ContactMixItem,
+  PaymentLine,
+  StaffWorkloadRow,
+  StaffWorkloadTrendRow,
+  DebtorMoneyByRegionRow,
+  ForwardedReport,
   IssueByRegionRow,
   Kpis,
+  OfficerCombinedRow,
   OfficerPerformanceRow,
+  OutboundByRegionRow,
   PaymentRow,
+  PaymentStatusByRegionRow,
   ReportFilters,
   SlaAgingReport,
   StatusByRegionRow,
   TrendPoint,
+  TurnaroundGroupRow,
+  TurnaroundReport,
+  TurnaroundTotals,
 } from '@/types';
 import { exclusiveEndISO, startOfDayISO } from '@/utils/dateRange';
 import { toNumber } from '@/utils/format';
@@ -39,7 +52,87 @@ const num = <T extends object>(row: T, keys: (keyof T)[]): T => {
   return out;
 };
 
+const groupRow = (r: TurnaroundGroupRow): TurnaroundGroupRow => ({
+  label: r.label,
+  resolved: toNumber(r.resolved),
+  avg_resolution_minutes: r.avg_resolution_minutes === null ? null : toNumber(r.avg_resolution_minutes),
+  median_resolution_minutes:
+    r.median_resolution_minutes === null || r.median_resolution_minutes === undefined
+      ? null
+      : toNumber(r.median_resolution_minutes),
+  avg_response_minutes: r.avg_response_minutes === null ? null : toNumber(r.avg_response_minutes),
+  within_sla: r.within_sla === undefined ? undefined : toNumber(r.within_sla),
+});
+
+const COMBINED_KEYS: (keyof CombinedTotals)[] = [
+  'ticket_outbound_calls', 'ticket_inbound_calls', 'ticket_calls', 'debtor_calls',
+  'debtor_customers_called', 'inbound_calls_total', 'outbound_calls_total',
+  'calls_total', 'ticket_payments', 'ticket_payment_count', 'debtor_collected',
+  'payments_total', 'debtor_payments_count', 'debtors_paid',
+];
+
+const WORKLOAD_KEYS: (keyof StaffWorkloadRow)[] = [
+  'tickets_assigned', 'tickets_resolved', 'tickets_active', 'tickets_overdue', 'ticket_calls',
+  'debtor_calls', 'debtors_contacted', 'total_calls', 'ticket_payments', 'debtor_collected',
+  'debtor_payments', 'total_collected',
+];
+
+/* Declared outside the service object so that officerPerformanceCombined can
+   reuse them: referring to a sibling method through `this` while the object's
+   own type is still being inferred loses the return types. */
+async function fetchOfficerPerformance(f: ReportFilters): Promise<OfficerPerformanceRow[]> {
+  const rows = await rpc<OfficerPerformanceRow[]>('report_officer_performance', params(f));
+  return (rows ?? []).map((r) => ({
+    ...num(r, ['total_assigned', 'resolved', 'active', 'resolution_rate', 'overdue', 'payments']),
+    avg_resolution_hours: r.avg_resolution_hours === null ? null : toNumber(r.avg_resolution_hours),
+    by_contact_type: Object.fromEntries(
+      Object.entries(r.by_contact_type ?? {}).map(([k, v]) => [k, toNumber(v)]),
+    ),
+  }));
+}
+
+async function fetchStaffWorkload(f: ReportFilters): Promise<StaffWorkloadRow[]> {
+  const rows = (await rpc<StaffWorkloadRow[]>('report_staff_workload', params(f))) ?? [];
+  return rows.map((r) => ({
+    ...num(r, WORKLOAD_KEYS),
+    avg_resolution_minutes: r.avg_resolution_minutes === null ? null : toNumber(r.avg_resolution_minutes),
+  }));
+}
+
 export const reportsService = {
+  /** Tickets and debtor calls together: calls made and money taken in */
+  async combined(f: ReportFilters): Promise<CombinedTotals> {
+    const d = await rpc<CombinedTotals>('dashboard_combined', params(f));
+    return num(d, COMBINED_KEYS);
+  },
+
+  /** Type-of-contact mix with debtor calls counted as outbound calls */
+  async contactMix(f: ReportFilters): Promise<ContactMixItem[]> {
+    const rows = (await rpc<ContactMixItem[]>('dashboard_contact_mix', params(f))) ?? [];
+    return rows.map((r) => num(r, ['count', 'from_debtors']));
+  },
+
+  /** Every payment behind the "Total received" figure */
+  async paymentLines(f: ReportFilters, source?: 'ticket' | 'debtor'): Promise<PaymentLine[]> {
+    const rows = (await rpc<PaymentLine[]>('report_payment_lines', {
+      ...params(f),
+      p_source: source ?? null,
+      p_limit: 5000,
+    })) ?? [];
+    return rows.map((r) => ({ ...r, amount: toNumber(r.amount) }));
+  },
+
+  /** One row per officer covering both ticket work and debtor calls */
+  staffWorkload: fetchStaffWorkload,
+
+  async staffWorkloadTrend(f: ReportFilters, bucket: 'day' | 'week' | 'month'): Promise<StaffWorkloadTrendRow[]> {
+    const { p_issue_type: _i, p_contact_type: _c, ...rest } = params(f);
+    const rows = (await rpc<StaffWorkloadTrendRow[]>('report_staff_workload_trend', { ...rest, p_bucket: bucket })) ?? [];
+    return rows.map((r) =>
+      num(r, ['ticket_calls', 'debtor_calls', 'total_calls', 'ticket_payments', 'debtor_collected', 'total_collected']),
+    );
+  },
+
   async kpis(f: ReportFilters): Promise<Kpis> {
     const d = await rpc<Record<string, unknown>>('dashboard_kpis', params(f));
     return {
@@ -88,15 +181,143 @@ export const reportsService = {
     return (rows ?? []).map((r) => num(r, ['total', 'count']));
   },
 
-  async officerPerformance(f: ReportFilters): Promise<OfficerPerformanceRow[]> {
-    const rows = await rpc<OfficerPerformanceRow[]>('report_officer_performance', params(f));
-    return (rows ?? []).map((r) => ({
-      ...num(r, ['total_assigned', 'resolved', 'active', 'resolution_rate', 'overdue', 'payments']),
-      avg_resolution_hours: r.avg_resolution_hours === null ? null : toNumber(r.avg_resolution_hours),
-      by_contact_type: Object.fromEntries(
-        Object.entries(r.by_contact_type ?? {}).map(([k, v]) => [k, toNumber(v)]),
-      ),
-    }));
+  /** What each region's outbound calls were made of: tickets vs debtor calls */
+  async outboundByRegion(f: ReportFilters): Promise<OutboundByRegionRow[]> {
+    const rows = (await rpc<OutboundByRegionRow[]>('report_outbound_by_region', params(f))) ?? [];
+    return rows.map((r) => num(r, ['ticket_outbound', 'debtor_calls', 'debtor_customers', 'total_outbound']));
+  },
+
+  /** Payments per region per payment status; debtor money counts as Receivables */
+  async paymentStatusByRegion(f: ReportFilters): Promise<PaymentStatusByRegionRow[]> {
+    const rows = (await rpc<PaymentStatusByRegionRow[]>('report_payment_status_by_region', params(f))) ?? [];
+    return rows.map((r) => num(r, ['ticket_count', 'ticket_total', 'debtor_count', 'debtor_total', 'count', 'total']));
+  },
+
+  /** Money recovered from debtors, per region */
+  async debtorMoneyByRegion(f: ReportFilters): Promise<DebtorMoneyByRegionRow[]> {
+    const { p_issue_type: _i, p_contact_type: _c, ...rest } = params(f);
+    const rows = (await rpc<DebtorMoneyByRegionRow[]>('report_debtor_money_by_region', rest)) ?? [];
+    return rows.map((r) => num(r, ['calls', 'customers_called', 'payments', 'customers_paid', 'collected', 'pay_rate']));
+  },
+
+  officerPerformance: fetchOfficerPerformance,
+
+  /**
+   * Officer performance with the debtor side of the job folded in.
+   *
+   * Officer performance counts tickets; staff workload counts debtor
+   * calls and collections. Managers want one row per officer covering
+   * both, with a total-calls figure that adds the debtor calls to the
+   * ticket contacts (in-bound, outbound, WhatsApp, text, walk-in).
+   */
+  async officerPerformanceCombined(f: ReportFilters): Promise<OfficerCombinedRow[]> {
+    const [perf, work] = await Promise.all([fetchOfficerPerformance(f), fetchStaffWorkload(f)]);
+    const byId = new Map(work.map((w) => [w.officer_id, w]));
+    const seen = new Set<string>();
+    const merge = (p: OfficerPerformanceRow): OfficerCombinedRow => {
+      const w = byId.get(p.officer_id);
+      seen.add(p.officer_id);
+      const ticketContacts = Object.values(p.by_contact_type).reduce((a, b) => a + b, 0);
+      const debtorCalls = w?.debtor_calls ?? 0;
+      const debtorCollected = w?.debtor_collected ?? 0;
+      return {
+        ...p,
+        debtor_calls: debtorCalls,
+        debtors_contacted: w?.debtors_contacted ?? 0,
+        debtor_payments: w?.debtor_payments ?? 0,
+        debtor_collected: debtorCollected,
+        ticket_contacts: ticketContacts,
+        total_calls: ticketContacts + debtorCalls,
+        total_received: p.payments + debtorCollected,
+      };
+    };
+    const rows = perf.map(merge);
+    /* An officer who only called debtors this month has no ticket row at
+       all, so they would otherwise be missing from the report. */
+    for (const w of work) {
+      if (seen.has(w.officer_id)) continue;
+      rows.push({
+        officer_id: w.officer_id,
+        officer_name: w.officer_name,
+        region: w.region,
+        is_active: w.is_active,
+        by_contact_type: {},
+        total_assigned: 0,
+        resolved: 0,
+        active: 0,
+        resolution_rate: 0,
+        avg_resolution_hours: null,
+        overdue: 0,
+        payments: 0,
+        debtor_calls: w.debtor_calls,
+        debtors_contacted: w.debtors_contacted,
+        debtor_payments: w.debtor_payments,
+        debtor_collected: w.debtor_collected,
+        ticket_contacts: 0,
+        total_calls: w.debtor_calls,
+        total_received: w.debtor_collected,
+      });
+    }
+    return rows.sort((a, b) => b.total_calls - a.total_calls || a.officer_name.localeCompare(b.officer_name));
+  },
+
+  /** Work forwarded to the districts, by region, district, officer and status */
+  async forwarded(f: ReportFilters): Promise<ForwardedReport> {
+    const d = await rpc<ForwardedReport>('report_forwarded_tickets', params(f));
+    const counts = ['total', 'open', 'in_progress', 'resolved', 'closed', 'overdue'] as const;
+    return {
+      totals: num(d?.totals ?? { total: 0, open: 0, in_progress: 0, resolved: 0, closed: 0, overdue: 0, districts: 0, officers: 0 },
+        [...counts, 'districts', 'officers']),
+      by_officer: (d?.by_officer ?? []).map((r) => ({
+        ...num(r, [...counts, 'resolution_rate']),
+        avg_field_hours: r.avg_field_hours === null || r.avg_field_hours === undefined ? null : toNumber(r.avg_field_hours),
+      })),
+      by_district: (d?.by_district ?? []).map((r) => num(r, [...counts, 'officers', 'resolution_rate'])),
+      by_region: (d?.by_region ?? []).map((r) => num(r, [...counts, 'districts', 'officers', 'resolution_rate'])),
+    };
+  },
+
+  /** Turnaround (raised → resolved) and waiting time (raised → first worked on) */
+  async turnaround(f: ReportFilters): Promise<TurnaroundReport> {
+    const d = await rpc<TurnaroundReport>('report_turnaround', params(f));
+    const minutes = (v: unknown) => (v === null || v === undefined ? null : toNumber(v));
+    const t = (d?.totals ?? {}) as Partial<TurnaroundTotals>;
+    return {
+      totals: {
+        tickets: toNumber(t.tickets),
+        resolved: toNumber(t.resolved),
+        avg_resolution_minutes: minutes(t.avg_resolution_minutes),
+        median_resolution_minutes: minutes(t.median_resolution_minutes),
+        p90_resolution_minutes: minutes(t.p90_resolution_minutes),
+        fastest_minutes: minutes(t.fastest_minutes),
+        slowest_minutes: minutes(t.slowest_minutes),
+        avg_response_minutes: minutes(t.avg_response_minutes),
+        median_response_minutes: minutes(t.median_response_minutes),
+        total_minutes: toNumber(t.total_minutes),
+        within_sla: toNumber(t.within_sla),
+      },
+      buckets: (d?.buckets ?? []).map((b) => ({ label: b.label, count: toNumber(b.count) })),
+      by_officer: (d?.by_officer ?? []).map((r) => ({
+        ...r,
+        resolved: toNumber(r.resolved),
+        avg_resolution_minutes: minutes(r.avg_resolution_minutes),
+        median_resolution_minutes: minutes(r.median_resolution_minutes),
+        avg_response_minutes: minutes(r.avg_response_minutes),
+        fastest_minutes: minutes(r.fastest_minutes),
+        slowest_minutes: minutes(r.slowest_minutes),
+        total_minutes: toNumber(r.total_minutes),
+        within_sla: toNumber(r.within_sla),
+      })),
+      by_issue_type: (d?.by_issue_type ?? []).map(groupRow),
+      by_region: (d?.by_region ?? []).map(groupRow),
+      by_contact_type: (d?.by_contact_type ?? []).map(groupRow),
+      trend: (d?.trend ?? []).map((r) => ({
+        bucket: r.bucket,
+        resolved: toNumber(r.resolved),
+        avg_resolution_minutes: minutes(r.avg_resolution_minutes),
+        avg_response_minutes: minutes(r.avg_response_minutes),
+      })),
+    };
   },
 
   async slaAging(f: ReportFilters): Promise<SlaAgingReport> {
