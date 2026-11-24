@@ -30,8 +30,8 @@ import {
 } from '@/components/ui';
 import { useAuth } from '@/hooks/useAuth';
 import { useDebounce } from '@/hooks/useDebounce';
-import { useLookups } from '@/hooks/useLookups';
-import { useOfficers } from '@/hooks/useOfficers';
+import { useLookups, useOfficers } from '@/hooks/useLookups';
+
 import { qk } from '@/lib/queryClient';
 import { errorMessage } from '@/services/errors';
 import { validationsService } from '@/services/validations';

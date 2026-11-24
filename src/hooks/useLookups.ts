@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { qk } from '@/lib/queryClient';
 import { lookupsService } from '@/services/lookups';
 import { officersService } from '@/services/officers';
-import type { Lookups } from '@/types';
+import type { Lookups, Officer } from '@/types';
 import { useAuth } from './useAuth';
 
 const EMPTY: Lookups = {
@@ -74,4 +74,43 @@ export function useOfficerWorkload(enabled = true) {
 /** value/label options for <Select> */
 export function toOptions(items: { name: string }[]) {
   return items.map((i) => ({ value: i.name, label: i.name }));
+}
+
+/**
+ * The officers worth offering once a region has been picked.
+ *
+ * An officer's region is where they are based. Choosing Ahafo and then
+ * being offered every officer in the country is how you end up with a
+ * contradictory pair of filters and an empty report that looks like a
+ * bug.
+ *
+ * Officers with no region recorded are always kept: there is no evidence
+ * they do not work the chosen region, and dropping them would hide real
+ * work. They are marked so it is clear why they are still listed.
+ */
+export function officerOptionsFor(
+  officers: Officer[],
+  region: string | null | undefined,
+): { value: string; label: string }[] {
+  const active = officers.filter((o) => o.is_active);
+  if (!region) return active.map((o) => ({ value: o.id, label: o.full_name }));
+  return active
+    .filter((o) => !o.region || o.region === region)
+    .map((o) => ({
+      value: o.id,
+      label: o.region ? o.full_name : `${o.full_name} — no region set`,
+    }));
+}
+
+/** Whether a chosen officer still belongs in the list after a region change */
+export function officerFitsRegion(
+  officers: Officer[],
+  officerId: string | null | undefined,
+  region: string | null | undefined,
+): boolean {
+  if (!officerId || !region) return true;
+  /* 'unassigned' is a pseudo-value on some filter bars, never an officer */
+  if (officerId === 'unassigned') return true;
+  const officer = officers.find((o) => o.id === officerId);
+  return !officer || !officer.region || officer.region === region;
 }

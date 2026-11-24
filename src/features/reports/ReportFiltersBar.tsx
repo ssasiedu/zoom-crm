@@ -1,6 +1,6 @@
 import { RotateCcw } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
-import { toOptions, useLookups, useOfficers } from '@/hooks/useLookups';
+import { officerFitsRegion, officerOptionsFor, toOptions, useLookups, useOfficers } from '@/hooks/useLookups';
 import { Button, DateRangePicker, Select } from '@/components/ui';
 import type { useReportFilters } from './useReportFilters';
 
@@ -14,16 +14,29 @@ export function ReportFiltersBar({ state, children }: { state: ReturnType<typeof
     onChange: (e: React.ChangeEvent<HTMLSelectElement>) => set({ [key]: e.target.value || null }),
   });
 
+  const region = params.get('region');
+  const officer = params.get('officer');
+  /* Changing the region can strand the chosen officer outside it, which
+     would quietly return nothing. Clear them together. */
+  const onRegion = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const next = e.target.value || null;
+    set(
+      officerFitsRegion(officers, officer, next)
+        ? { region: next }
+        : { region: next, officer: null },
+    );
+  };
+
   return (
     <div className="no-print mb-5 flex flex-wrap items-center gap-2 rounded-panel border bg-white p-3 shadow-xs dark:bg-slate-900">
       <DateRangePicker value={range} onChange={setRange} id="report-range" />
-      <Select aria-label="Region" className="w-full sm:w-44" placeholder="All regions" options={toOptions(lookups.regions)} {...bind('region')} />
+      <Select aria-label="Region" className="w-full sm:w-44" placeholder="All regions" options={toOptions(lookups.regions)} value={region ?? ''} onChange={onRegion} />
       {role !== 'dm_officer' && (
         <Select
           aria-label="Officer"
           className="w-full sm:w-48"
           placeholder="All officers"
-          options={officers.map((o) => ({ value: o.id, label: o.full_name }))}
+          options={officerOptionsFor(officers, region)}
           {...bind('officer')}
         />
       )}

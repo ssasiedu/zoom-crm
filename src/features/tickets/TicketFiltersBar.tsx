@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Filter, Search, X } from 'lucide-react';
-import { toOptions, useLookups, useOfficers } from '@/hooks/useLookups';
+import { officerFitsRegion, officerOptionsFor, toOptions, useLookups, useOfficers } from '@/hooks/useLookups';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useAuth } from '@/hooks/useAuth';
 import { PRIORITIES, STATUSES } from '@/lib/constants';
@@ -41,6 +41,17 @@ export function TicketFiltersBar({ state }: { state: UrlState }) {
     value: params.get(key) ?? '',
     onChange: (e: React.ChangeEvent<HTMLSelectElement>) => update({ [key]: e.target.value || null }),
   });
+
+  const region = params.get('region');
+  /* A region and an officer from somewhere else make an empty result
+     that reads as a bug, so the two move together. */
+  const onRegion = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const next = e.target.value || null;
+    const officer = params.get('officer');
+    update(
+      officerFitsRegion(officers, officer, next) ? { region: next } : { region: next, officer: null },
+    );
+  };
 
   return (
     <div className="space-y-3 border-b p-3 sm:p-4">
@@ -110,7 +121,7 @@ export function TicketFiltersBar({ state }: { state: UrlState }) {
       {expanded && (
         <div className="grid animate-fade-in gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
           <Field label="Region" htmlFor="f-region">
-            <Select id="f-region" size="sm" placeholder="All regions" options={toOptions(active.regions)} {...sel('region')} />
+            <Select id="f-region" size="sm" placeholder="All regions" options={toOptions(active.regions)} value={region ?? ''} onChange={onRegion} />
           </Field>
           <Field label="Issue type" htmlFor="f-issue">
             <Select id="f-issue" size="sm" placeholder="All issue types" options={toOptions(active.issue_types)} {...sel('issue_type')} />
@@ -124,7 +135,7 @@ export function TicketFiltersBar({ state }: { state: UrlState }) {
                 id="f-officer"
                 size="sm"
                 placeholder="All officers"
-                options={[{ value: 'unassigned', label: '— Unassigned —' }, ...officers.map((o) => ({ value: o.id, label: o.full_name }))]}
+                options={[{ value: 'unassigned', label: '— Unassigned —' }, ...officerOptionsFor(officers, region)]}
                 {...sel('officer')}
               />
             </Field>

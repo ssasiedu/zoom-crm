@@ -26,7 +26,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuth } from '@/hooks/useAuth';
 import { useDebounce } from '@/hooks/useDebounce';
 import { useAssignDebtors, useDebtorList, useDebtorPeriods, useDebtorSummary, useInvalidateDebtors } from '@/hooks/useDebtors';
-import { toOptions, useLookups, useOfficers } from '@/hooks/useLookups';
+import { officerOptionsFor, toOptions, useLookups, useOfficers } from '@/hooks/useLookups';
 import { qk } from '@/lib/queryClient';
 import { debtorsService } from '@/services/debtors';
 import { errorMessage } from '@/services/errors';
@@ -292,7 +292,7 @@ export default function DebtorsPage() {
               onChange={(e) => setSearch(e.target.value)}
               className="w-full sm:w-72"
             />
-            <Select aria-label="Officer" size="sm" className="w-44" placeholder="All officers" options={[{ value: 'unassigned', label: '— Unassigned —' }, ...officers.map((o) => ({ value: o.id, label: o.full_name }))]} {...sel('officer')} />
+            <Select aria-label="Officer" size="sm" className="w-44" placeholder="All officers" options={[{ value: 'unassigned', label: '— Unassigned —' }, ...officerOptionsFor(officers, sel('region').value || null)]} {...sel('officer')} />
             <Select aria-label="Status" size="sm" className="w-36" placeholder="Any status" options={[{ value: 'Pending', label: 'Pending' }, { value: 'Worked', label: 'Worked' }, { value: 'Collected', label: 'Collected' }]} {...sel('work')} />
             <Select aria-label="Feedback" size="sm" className="w-48" placeholder="Any feedback" options={[{ value: 'none', label: '— Not yet called —' }, ...toOptions(active.debtor_feedback)]} {...sel('feedback')} />
             <Select aria-label="Provider" size="sm" className="w-40" placeholder="All providers" options={toOptions(active.providers)} {...sel('provider')} />

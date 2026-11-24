@@ -3,8 +3,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Upload, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge, Button, Field, Input, Modal, Select, Textarea, type SelectOption } from '@/components/ui';
-import { useLookups } from '@/hooks/useLookups';
-import { useOfficers } from '@/hooks/useOfficers';
+import { useLookups, useOfficers } from '@/hooks/useLookups';
+
 import { qk } from '@/lib/queryClient';
 import { errorMessage } from '@/services/errors';
 import { ensureLookupValues } from '@/services/lookups';
