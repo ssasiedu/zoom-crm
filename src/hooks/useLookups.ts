@@ -16,6 +16,7 @@ const EMPTY: Lookups = {
   providers: [],
   debtor_feedback: [],
   districts: [],
+  validation_responses: [],
 };
 
 /** All lookup tables (including inactive values) */
@@ -39,6 +40,7 @@ export function useLookups() {
     providers: data.providers.filter((x) => x.is_active),
     debtor_feedback: data.debtor_feedback.filter((x) => x.is_active),
     districts: data.districts.filter((x) => x.is_active),
+    validation_responses: data.validation_responses.filter((x) => x.is_active),
   } satisfies Lookups;
   return { ...query, lookups: data, active };
 }

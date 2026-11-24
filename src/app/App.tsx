@@ -20,6 +20,8 @@ const DashboardPage = lazy(() => import('@/features/dashboard/DashboardPage'));
 const MyTicketsPage = lazy(() => import('@/features/tickets/MyTicketsPage'));
 const AllTicketsPage = lazy(() => import('@/features/tickets/AllTicketsPage'));
 const ForwardedPage = lazy(() => import('@/features/tickets/ForwardedPage'));
+const ValidationsPage = lazy(() => import('@/features/validations/ValidationsPage'));
+const MyValidationsPage = lazy(() => import('@/features/validations/MyValidationsPage'));
 const NewTicketPage = lazy(() => import('@/features/tickets/NewTicketPage'));
 const TicketDetailPage = lazy(() => import('@/features/tickets/TicketDetailPage'));
 const ReportsPage = lazy(() => import('@/features/reports/ReportsPage'));
@@ -83,6 +85,8 @@ export function App() {
                   <Route path="my-tickets" element={<Page><MyTicketsPage /></Page>} />
                   <Route path="field-work" element={<Page><MyTicketsPage mode="field" /></Page>} />
                   <Route path="forwarded" element={<Page permission="tickets:forward"><ForwardedPage /></Page>} />
+                  <Route path="validations" element={<Page permission="validations:view"><ValidationsPage /></Page>} />
+                  <Route path="my-validations" element={<Page><MyValidationsPage /></Page>} />
                   <Route path="tickets" element={<Page permission="tickets:list"><AllTicketsPage /></Page>} />
                   <Route path="tickets/new" element={<Page permission="tickets:create"><NewTicketPage /></Page>} />
                   <Route path="tickets/:id" element={<Page><TicketDetailPage /></Page>} />

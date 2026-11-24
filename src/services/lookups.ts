@@ -1,5 +1,13 @@
 import { supabase } from '@/lib/supabase';
-import type { DebtorFeedbackItem, District, IssueTypeItem, LookupItem, Lookups, LookupTable } from '@/types';
+import type {
+  DebtorFeedbackItem,
+  District,
+  IssueTypeItem,
+  LookupItem,
+  Lookups,
+  LookupTable,
+  ValidationResponseItem,
+} from '@/types';
 import { unwrap } from './errors';
 
 const TABLES: LookupTable[] = [
@@ -13,6 +21,7 @@ const TABLES: LookupTable[] = [
   'providers',
   'debtor_feedback',
   'districts',
+  'validation_responses',
 ];
 
 export const lookupsService = {
@@ -32,14 +41,15 @@ export const lookupsService = {
       issue_types: out.issue_types as IssueTypeItem[],
       debtor_feedback: out.debtor_feedback as DebtorFeedbackItem[],
       districts: out.districts as District[],
+      validation_responses: out.validation_responses as ValidationResponseItem[],
     };
   },
 
-  async create(table: LookupTable, values: Partial<IssueTypeItem & DebtorFeedbackItem & District> & { name: string }) {
+  async create(table: LookupTable, values: Partial<IssueTypeItem & DebtorFeedbackItem & District & ValidationResponseItem> & { name: string }) {
     return unwrap(await supabase.from(table).insert(values).select().single()) as LookupItem;
   },
 
-  async update(table: LookupTable, id: number, values: Partial<IssueTypeItem & DebtorFeedbackItem & District>) {
+  async update(table: LookupTable, id: number, values: Partial<IssueTypeItem & DebtorFeedbackItem & District & ValidationResponseItem>) {
     return unwrap(await supabase.from(table).update(values).eq('id', id).select().single()) as LookupItem;
   },
 

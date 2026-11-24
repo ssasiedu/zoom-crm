@@ -21,6 +21,7 @@ export const LOOKUP_LABELS: Record<LookupTable, { title: string; description: st
   providers: { title: 'PROVIDER', description: 'Service providers on the debtor list' },
   debtor_feedback: { title: 'FEEDBACK', description: 'Outcomes officers can record on a debtor call' },
   districts: { title: 'District', description: 'Managed under District officers, where each one is tied to a region' },
+  validation_responses: { title: 'RESPONSE', description: 'What a customer can say on a data validation call' },
 };
 
 const TICKET_LOOKUPS: LookupTable[] = [

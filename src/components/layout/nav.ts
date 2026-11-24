@@ -1,7 +1,9 @@
 import {
   BarChart3,
   Bell,
+  ClipboardCheck,
   ClipboardList,
+  ListChecks,
   HandCoins,
   Inbox,
   LayoutDashboard,
@@ -40,6 +42,8 @@ export const NAV_ITEMS: NavItem[] = [
   { to: '/forwarded', label: 'Forwarded Work', icon: Send, permission: 'tickets:forward', roles: ['admin', 'supervisor', 'regional_manager'], section: 'Field layer' },
   { to: '/my-debtors', label: 'My Debtor List', icon: PhoneCall, officerOnly: true, roles: DESK, section: 'Debt recovery' },
   { to: '/debtors', label: 'Debtor Lists', icon: HandCoins, permission: 'debtors:view', section: 'Debt recovery' },
+  { to: '/my-validations', label: 'My Validation List', icon: ClipboardCheck, officerOnly: true, roles: DESK, section: 'Data validation' },
+  { to: '/validations', label: 'Data Validation', icon: ListChecks, permission: 'validations:view', section: 'Data validation' },
   { to: '/reports', label: 'Reports', icon: BarChart3, permission: 'reports:view', section: 'Insights' },
   { to: '/notifications', label: 'Notifications', icon: Bell },
   { to: '/admin', label: 'Administration', icon: Settings, permission: 'admin' },

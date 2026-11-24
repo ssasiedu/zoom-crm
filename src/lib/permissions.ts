@@ -19,6 +19,12 @@ export type Permission =
   | 'debtors:view'
   | 'debtors:manage'
   | 'debtors:work'
+  /** see the data validation exercises and their reports */
+  | 'validations:view'
+  /** load a list, assign it and close the exercise */
+  | 'validations:manage'
+  /** call the customers on a list you have been given */
+  | 'validations:work'
   /** send a ticket down to the District Operation Officer for that district */
   | 'tickets:forward'
   /** do the field work on a ticket forwarded to you */
@@ -46,6 +52,9 @@ const ALL: Permission[] = [
   'debtors:view',
   'debtors:manage',
   'debtors:work',
+  'validations:view',
+  'validations:manage',
+  'validations:work',
   'tickets:forward',
   'tickets:field',
   'officers:manage',
@@ -71,7 +80,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     'tickets:forward',
     'sms:send',
   ],
-  dm_officer: ['tickets:work', 'tickets:forward', 'sms:send', 'debtors:work'],
+  dm_officer: ['tickets:work', 'tickets:forward', 'sms:send', 'debtors:work', 'validations:work'],
   /**
    * The field layer. Both see only forwarded tickets — the database
    * decides that, not this list. A regional manager can forward within

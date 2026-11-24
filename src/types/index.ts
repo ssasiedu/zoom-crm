@@ -200,10 +200,12 @@ export type LookupTable =
   | 'customer_types'
   | 'providers'
   | 'debtor_feedback'
-  | 'districts';
+  | 'districts'
+  | 'validation_responses';
 
 export interface Lookups {
   districts: District[];
+  validation_responses: ValidationResponseItem[];
   contact_types: LookupItem[];
   issue_types: IssueTypeItem[];
   payment_sources: LookupItem[];
@@ -1009,4 +1011,177 @@ export interface DebtorLine {
   paid_at?: string;
   comment?: string | null;
   feedback?: string | null;
+}
+
+/* ==================================================================== */
+/* Data validation exercises                                            */
+/*                                                                      */
+/* A named list of customers to call, with a stated purpose. Same shape  */
+/* as the debtor list — the team already knows how to work that one —    */
+/* but the officer records a response rather than a collection outcome. */
+/* ==================================================================== */
+
+/** active = still with us, inactive = gone, unreachable = never got through */
+export type ValidationOutcome = 'active' | 'inactive' | 'unreachable' | 'other';
+
+export interface ValidationResponseItem extends LookupItem {
+  outcome: ValidationOutcome;
+  is_positive: boolean;
+}
+
+export interface ValidationBatch {
+  id: string;
+  name: string;
+  purpose: string | null;
+  status: 'open' | 'closed';
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** A batch with its progress, as the list screen shows it */
+export interface ValidationBatchRow extends ValidationBatch {
+  customers: number;
+  answered: number;
+  active: number;
+  inactive: number;
+  unreachable: number;
+  collected: number;
+  answer_rate: number;
+}
+
+export type ValidationWorkStatus = 'Answered' | 'Pending';
+
+export interface ValidationCustomer {
+  id: string;
+  batch_id: string;
+  customer_id: string | null;
+  customer_name: string;
+  customer_type: string | null;
+  provider: string | null;
+  community: string | null;
+  region: string | null;
+  contact_number: string | null;
+  outstanding_balance: number;
+  officer_id: string | null;
+  amount_collected: number | null;
+  response: string | null;
+  comment: string | null;
+  promised_amount: number | null;
+  promised_date: string | null;
+  call_attempts: number;
+  contacted_at: string | null;
+  contacted_by: string | null;
+  created_at: string;
+  updated_at: string;
+  work_status: ValidationWorkStatus;
+  officer?: { full_name: string } | null;
+  batch?: { name: string } | null;
+}
+
+export type ValidationCustomerInsert = Pick<ValidationCustomer, 'batch_id' | 'customer_name'> &
+  Partial<
+    Pick<
+      ValidationCustomer,
+      | 'customer_id' | 'customer_type' | 'provider' | 'community' | 'region'
+      | 'contact_number' | 'outstanding_balance' | 'officer_id'
+    >
+  >;
+
+export type ValidationCustomerUpdate = Partial<
+  Pick<
+    ValidationCustomer,
+    | 'customer_id' | 'customer_name' | 'customer_type' | 'provider' | 'community'
+    | 'region' | 'contact_number' | 'outstanding_balance' | 'officer_id'
+  >
+>;
+
+export interface ValidationCall {
+  id: string;
+  validation_id: string;
+  batch_id: string;
+  officer_id: string | null;
+  called_at: string;
+  response: string;
+  amount_collected: number | null;
+  payment_reference: string | null;
+  promised_amount: number | null;
+  promised_date: string | null;
+  comment: string | null;
+  created_by: string | null;
+  created_at: string;
+  author?: { full_name: string } | null;
+  officer?: { full_name: string } | null;
+}
+
+export type ValidationCallInsert = Pick<ValidationCall, 'validation_id' | 'response'> &
+  Partial<
+    Pick<ValidationCall, 'called_at' | 'amount_collected' | 'payment_reference' | 'promised_amount' | 'promised_date' | 'comment'>
+  >;
+
+export type ValidationCallUpdate = Partial<
+  Pick<ValidationCall, 'called_at' | 'response' | 'amount_collected' | 'payment_reference' | 'promised_amount' | 'promised_date' | 'comment'>
+>;
+
+export interface ValidationFilters {
+  batch?: string;
+  officer?: string;
+  provider?: string;
+  customerType?: string;
+  community?: string;
+  region?: string;
+  response?: string;
+  outcome?: ValidationOutcome;
+  workStatus?: ValidationWorkStatus;
+  search?: string;
+}
+
+export interface ValidationSummary {
+  customers: number;
+  answered: number;
+  pending: number;
+  active: number;
+  inactive: number;
+  unreachable: number;
+  other: number;
+  calls: number;
+  collected: number;
+  customers_paid: number;
+  outstanding: number;
+  answer_rate: number;
+}
+
+export interface ValidationResponseRow {
+  response: string;
+  outcome: ValidationOutcome;
+  sort_order: number;
+  customers: number;
+  collected: number;
+  outstanding: number;
+}
+
+export interface ValidationRegionRow {
+  region: string;
+  customers: number;
+  answered: number;
+  active: number;
+  inactive: number;
+  unreachable: number;
+  collected: number;
+  outstanding: number;
+  answer_rate: number;
+}
+
+export interface ValidationOfficerRow {
+  officer_id: string | null;
+  officer_name: string;
+  customers: number;
+  answered: number;
+  pending: number;
+  calls: number;
+  active: number;
+  inactive: number;
+  unreachable: number;
+  collected: number;
+  answer_rate: number;
 }
