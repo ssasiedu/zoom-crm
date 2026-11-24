@@ -8,12 +8,12 @@ Open the app and sign in with the email your administrator registered. You land 
 ## Logging a new ticket
 Press **N** anywhere (or click **New Ticket** in the sidebar).
 
-1. **Client** — enter the client's **ID** and **CONTACT NUMBER** first. The app looks them up:
+1. **Client** — enter the client's **CUSTOMER ID** (optional) and **CONTACT NUMBER** first. The app looks them up:
    - *Client history* lists their earlier tickets. Click **Use these details** to fill name, community and region.
    - *Possible duplicate* (amber) means the client already has an active ticket of the same issue type. Open it (it opens in a new tab) and add a comment there instead of creating a second ticket, unless it is genuinely a new problem.
 2. Fill **CLIENT**, **Region**, **COMMUNITY** (start typing to pick a known community or type a new one) and **TYPE OF CONTACT** (IN-BOUND CALL, OUTBOUND CALL, WHATSAPP, TEXT, WALK IN).
 3. **Issue** — choose the **ISSUE TYPE**. The due date is filled in from the SLA (for example ENQUIRY = 1 day). Write a clear **DESCRIPTION** of what the client reported. Set **Priority** if it is urgent.
-4. **Payment** — appears automatically for PAYMENT ISSUE, PAYMENT ASSIST and UNREFLECTED PAYMENTS. All four payment fields are required. Enter the amount in cedis, e.g. `250` or `1,250.50`.
+4. **Payment** — always shown, because any issue can involve money. For PAYMENT ISSUE, PAYMENT ASSIST and UNREFLECTED PAYMENTS all four fields are required (marked with *); otherwise fill in what you know and leave the rest empty. Enter the amount in cedis, e.g. `250` or `1,250.50`.
 5. **Assignment** (optional) — pick an officer. Each card shows how many active and overdue tickets the officer has. The ✨ **Suggest** button picks the least busy officer in the client's region.
 6. Click **Create ticket** (or press **Ctrl + Enter**). Use **Save & create another** when you have a queue of callers; the channel and region are kept for the next one.
 
@@ -27,6 +27,12 @@ Your unfinished form is saved on this device automatically. If you close the tab
 - Click a row to open the ticket in a side panel; the ↗ icon opens the full page.
 - Save filter combinations you use often with **Views → Save current filters**.
 
+## Texting the customer
+
+The **SMS** button sits next to Call and WhatsApp on any ticket. Pick a template or write your own message — the preview shows exactly what the customer receives, with their name and ticket number filled in, and how many SMS parts it costs. Messages are logged on the ticket's **SMS** tab.
+
+Some messages go out on their own (for example when a ticket is closed). Your administrator decides which.
+
 ## Updating your tickets
 You can edit client and issue details of tickets you created (**Edit** on the ticket) and assign or reassign them. You cannot change the status — the assigned officer does that — but you can add **Comments** and **Attachments** (e.g. a screenshot of a payment receipt).
 
@@ -36,5 +42,6 @@ You can edit client and issue details of tickets you created (**Edit** on the ti
 
 ## Tips
 - Write descriptions a colleague can act on without calling the client back: what happened, when, amounts, reference numbers.
+- No customer ID? Leave it empty and carry on — the phone number is enough to find the client later.
 - Check the duplicate warning every time — it keeps officer workloads accurate.
 - Dark mode is under your name (top right) → **My profile**.

@@ -92,7 +92,7 @@ export function TicketForm({ form, mode, isAdmin, canEditDueDate, canAssign, tic
   const applyClient = (c: ClientLookupResult) => {
     const opts = { shouldDirty: true, shouldValidate: true };
     setValue('client_name', c.client_name, opts);
-    setValue('client_id', c.client_id, opts);
+    setValue('client_id', c.client_id ?? '', opts);
     setValue('contact_number', toLocalPhone(c.contact_number), opts);
     setValue('community', c.community, opts);
     setValue('region', c.region, opts);
@@ -103,7 +103,12 @@ export function TicketForm({ form, mode, isAdmin, canEditDueDate, canAssign, tic
   return (
     <div className="space-y-5">
       <Section icon={<UserRound />} title="Client" description="Look up an existing client by ID or phone to reuse their details.">
-        <Field label={L.client_id} htmlFor="client_id" required error={e.client_id?.message}>
+        <Field
+          label={L.client_id}
+          htmlFor="client_id"
+          error={e.client_id?.message}
+          hint="Optional — leave empty if the caller doesn't have it"
+        >
           <Input id="client_id" autoComplete="off" invalid={!!e.client_id} {...register('client_id')} placeholder="e.g. GHA-123456789-0" />
         </Field>
         <Field label={L.contact_number} htmlFor="contact_number" required error={e.contact_number?.message} hint="0XXXXXXXXX or +233XXXXXXXXX">
@@ -224,35 +229,37 @@ export function TicketForm({ form, mode, isAdmin, canEditDueDate, canAssign, tic
         </Field>
       </Section>
 
-      {(needsPayment || form.getValues('payment_amount')) && (
-        <Section
-          accent
-          icon={<Banknote />}
-          title="Payment"
-          description={needsPayment ? `Required for ${issueType}.` : 'Optional payment details.'}
-        >
-          <Field label={`${L.payment_amount} (GH₵)`} htmlFor="payment_amount" required={needsPayment} error={e.payment_amount?.message}>
-            <Input
-              id="payment_amount"
-              inputMode="decimal"
-              leftIcon={<span className="text-xs font-semibold">GH₵</span>}
-              className="pl-12"
-              invalid={!!e.payment_amount}
-              {...register('payment_amount')}
-              placeholder="0.00"
-            />
-          </Field>
-          <Field label={L.payment_source} htmlFor="payment_source" required={needsPayment} error={e.payment_source?.message}>
-            <Select id="payment_source" placeholder="Select source" invalid={!!e.payment_source} options={toOptions(active.payment_sources)} {...register('payment_source')} />
-          </Field>
-          <Field label={L.payment_type} htmlFor="payment_type" required={needsPayment} error={e.payment_type?.message}>
-            <Select id="payment_type" placeholder="Select type" invalid={!!e.payment_type} options={toOptions(active.payment_types)} {...register('payment_type')} />
-          </Field>
-          <Field label={L.payment_status} htmlFor="payment_status" required={needsPayment} error={e.payment_status?.message}>
-            <Select id="payment_status" placeholder="Select status" invalid={!!e.payment_status} options={toOptions(active.payment_statuses)} {...register('payment_status')} />
-          </Field>
-        </Section>
-      )}
+      <Section
+        accent
+        icon={<Banknote />}
+        title="Payment"
+        description={
+          needsPayment
+            ? `Required for ${issueType}.`
+            : 'Record any payment linked to this issue. Leave empty when there is none.'
+        }
+      >
+        <Field label={`${L.payment_amount} (GH₵)`} htmlFor="payment_amount" required={needsPayment} error={e.payment_amount?.message}>
+          <Input
+            id="payment_amount"
+            inputMode="decimal"
+            leftIcon={<span className="text-xs font-semibold">GH₵</span>}
+            className="pl-12"
+            invalid={!!e.payment_amount}
+            {...register('payment_amount')}
+            placeholder="0.00"
+          />
+        </Field>
+        <Field label={L.payment_source} htmlFor="payment_source" required={needsPayment} error={e.payment_source?.message}>
+          <Select id="payment_source" placeholder="Select source" invalid={!!e.payment_source} options={toOptions(active.payment_sources)} {...register('payment_source')} />
+        </Field>
+        <Field label={L.payment_type} htmlFor="payment_type" required={needsPayment} error={e.payment_type?.message}>
+          <Select id="payment_type" placeholder="Select type" invalid={!!e.payment_type} options={toOptions(active.payment_types)} {...register('payment_type')} />
+        </Field>
+        <Field label={L.payment_status} htmlFor="payment_status" required={needsPayment} error={e.payment_status?.message}>
+          <Select id="payment_status" placeholder="Select status" invalid={!!e.payment_status} options={toOptions(active.payment_statuses)} {...register('payment_status')} />
+        </Field>
+      </Section>
 
       {canAssign && mode === 'create' && (
         <Card>

@@ -11,7 +11,7 @@ import type {
 } from '@/types';
 import { exclusiveEndISO, startOfDayISO } from '@/utils/dateRange';
 import { toLocalPhone } from '@/utils/phone';
-import { AppError, toAppError, unwrap } from './errors';
+import { AppError, errorMessage, toAppError, unwrap } from './errors';
 
 export interface ListParams {
   filters?: TicketFilters;
@@ -20,6 +20,10 @@ export interface ListParams {
   sort?: SortSpec[];
   /** restrict to the current officer's tickets (RLS already does this for officers) */
   officerId?: string | null;
+  /** restrict to the field work of one District Operation Officer */
+  districtOfficerId?: string | null;
+  /** only tickets that have been sent down to a district */
+  forwardedOnly?: boolean;
 }
 
 export interface ListResult {
@@ -49,6 +53,8 @@ const SORTABLE = new Set([
   'priority',
   'created_at',
   'updated_at',
+  'district',
+  'forwarded_at',
 ]);
 
 /** Strip characters that have meaning inside a PostgREST or() expression */
@@ -114,10 +120,12 @@ function applySort<Q extends { order: (col: string, opts: { ascending: boolean; 
 }
 
 export const ticketsService = {
-  async list({ filters, page = 0, pageSize = 25, sort, officerId }: ListParams): Promise<ListResult> {
+  async list({ filters, page = 0, pageSize = 25, sort, officerId, districtOfficerId, forwardedOnly }: ListParams): Promise<ListResult> {
     let q = supabase.from('tickets_view').select('*', { count: 'exact' });
     q = applyFilters(q, filters);
     if (officerId) q = q.eq('assigned_officer_id', officerId);
+    if (districtOfficerId) q = q.eq('district_officer_id', districtOfficerId);
+    if (forwardedOnly) q = q.not('district_officer_id', 'is', null);
     q = applySort(q, sort);
     const from = page * pageSize;
     const { data, error, count } = await q.range(from, from + pageSize - 1);
@@ -178,6 +186,38 @@ export const ticketsService = {
 
   async remove(id: string): Promise<void> {
     unwrap(await supabase.from('tickets').delete().eq('id', id));
+  },
+
+  /**
+   * Send a ticket down to the District Operation Officer for that
+   * district. The ticket stays assigned to whoever took the call — the
+   * district officer is who does the field work. The database checks
+   * that the forwarder is allowed to, alerts the officer and their
+   * regional manager, and queues the SMS.
+   */
+  async forward(id: string, districtOfficerId: string, note?: string | null): Promise<Ticket> {
+    return unwrap(
+      await supabase.rpc('forward_ticket', {
+        p_ticket: id,
+        p_district_officer: districtOfficerId,
+        p_note: note?.trim() || null,
+      }),
+    ) as Ticket;
+  },
+
+  /** Forward several tickets to the same officer, reporting any that would not go */
+  async forwardMany(ids: string[], districtOfficerId: string, note?: string | null) {
+    const failed: { id: string; message: string }[] = [];
+    let forwarded = 0;
+    for (const id of ids) {
+      try {
+        await ticketsService.forward(id, districtOfficerId, note);
+        forwarded += 1;
+      } catch (err) {
+        failed.push({ id, message: errorMessage(err) });
+      }
+    }
+    return { forwarded, failed };
   },
 
   async assign(ids: string[], officerId: string | null, note?: string | null): Promise<number> {

@@ -116,8 +116,10 @@ export function Modal({ open, onClose, title, description, children, footer, siz
           )}
         </div>
         <div className="scrollbar-thin flex-1 overflow-y-auto px-5 py-4">{children}</div>
+        {/* On phones the dialog is flush to the bottom-right, where hosting
+            badges and chat widgets sit — keep the buttons clear of them. */}
         {footer && (
-          <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-slate-50/70 px-5 py-3 dark:bg-slate-900/60">
+          <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-slate-50/70 py-3 pr-40 pl-5 sm:pr-5 dark:bg-slate-900/60">
             {footer}
           </div>
         )}

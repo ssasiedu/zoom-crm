@@ -14,6 +14,7 @@ const L = FIELD_LABELS;
 interface WorkValues {
   completion_date: string;
   remarks: string;
+  field_notes: string;
   reason_for_open_status: string;
   payment_amount: string;
   payment_source: string;
@@ -25,6 +26,7 @@ function fromTicket(t: TicketRow): WorkValues {
   return {
     completion_date: toInputDateTime(t.completion_date),
     remarks: t.remarks ?? '',
+    field_notes: t.field_notes ?? '',
     reason_for_open_status: t.reason_for_open_status ?? '',
     payment_amount: t.payment_amount === null ? '' : String(t.payment_amount),
     payment_source: t.payment_source ?? '',
@@ -51,7 +53,13 @@ export function WorkPanel({ ticket }: { ticket: TicketRow }) {
   }, [ticket]);
 
   const isAssignedToMe = Boolean(officerId && ticket.assigned_officer_id === officerId);
-  const canWork = can('tickets:close') || (role === 'dm_officer' && isAssignedToMe);
+  /* The District Operation Officer works the ticket that was forwarded to them. */
+  const isMyFieldWork = Boolean(officerId && ticket.district_officer_id === officerId);
+  const canWork =
+    can('tickets:close')
+    || (role === 'dm_officer' && isAssignedToMe)
+    || (role === 'district_officer' && isMyFieldWork)
+    || (role === 'regional_manager' && Boolean(ticket.district_officer_id));
   const canClose = can('tickets:close');
   const isDone = ticket.status === 'Resolved' || ticket.status === 'Closed';
   const overdue = getDueState(ticket) === 'overdue';
@@ -103,6 +111,8 @@ export function WorkPanel({ ticket }: { ticket: TicketRow }) {
     if (remarks !== (ticket.remarks ?? null)) patch.remarks = remarks;
     const reason = emptyToNull(v.reason_for_open_status);
     if (reason !== (ticket.reason_for_open_status ?? null)) patch.reason_for_open_status = reason;
+    const field = emptyToNull(v.field_notes);
+    if (field !== (ticket.field_notes ?? null)) patch.field_notes = field;
     const completion = status === 'Resolved' || status === 'Closed' ? fromInputDateTime(v.completion_date) : null;
     if (status === 'Resolved' && ticket.status !== 'Resolved') patch.completion_date = completion ?? new Date().toISOString();
     else if ((status === 'Resolved' || status === 'Closed') && completion && completion !== ticket.completion_date) {
@@ -167,24 +177,35 @@ export function WorkPanel({ ticket }: { ticket: TicketRow }) {
         <Field label={L.remarks} htmlFor="remarks" error={errors.remarks} className="sm:col-span-2" hint="Required to resolve. Describe the action taken.">
           <Textarea id="remarks" rows={3} value={v.remarks} onChange={set('remarks')} invalid={!!errors.remarks} />
         </Field>
+        {ticket.district_officer_id && (
+          <Field
+            label="FIELD NOTES"
+            htmlFor="field_notes"
+            className="sm:col-span-2"
+            hint="What was found on site. Visible to the regional manager and the office."
+          >
+            <Textarea id="field_notes" rows={3} value={v.field_notes} onChange={set('field_notes')} />
+          </Field>
+        )}
       </div>
 
-      {(needsPayment || ticket.payment_amount !== null) && (
-        <div className="grid gap-4 rounded-lg border border-gold-400/50 p-3 sm:grid-cols-2">
-          <Field label={`${L.payment_amount} (GH₵)`} htmlFor="w-payment_amount" required={needsPayment} error={errors.payment_amount}>
-            <Input id="w-payment_amount" inputMode="decimal" value={v.payment_amount} onChange={set('payment_amount')} invalid={!!errors.payment_amount} />
-          </Field>
-          <Field label={L.payment_source} htmlFor="w-payment_source" required={needsPayment} error={errors.payment_source}>
-            <Select id="w-payment_source" placeholder="Select" value={v.payment_source} onChange={set('payment_source')} options={toOptions(active.payment_sources)} invalid={!!errors.payment_source} />
-          </Field>
-          <Field label={L.payment_type} htmlFor="w-payment_type" required={needsPayment} error={errors.payment_type}>
-            <Select id="w-payment_type" placeholder="Select" value={v.payment_type} onChange={set('payment_type')} options={toOptions(active.payment_types)} invalid={!!errors.payment_type} />
-          </Field>
-          <Field label={L.payment_status} htmlFor="w-payment_status" required={needsPayment} error={errors.payment_status}>
-            <Select id="w-payment_status" placeholder="Select" value={v.payment_status} onChange={set('payment_status')} options={toOptions(active.payment_statuses)} invalid={!!errors.payment_status} />
-          </Field>
-        </div>
-      )}
+      <div className="grid gap-4 rounded-lg border border-gold-400/50 p-3 sm:grid-cols-2">
+        <p className="text-xs font-semibold tracking-wide text-slate-500 uppercase sm:col-span-2">
+          Payment{needsPayment ? ' (required for this issue type)' : ''}
+        </p>
+        <Field label={`${L.payment_amount} (GH₵)`} htmlFor="w-payment_amount" required={needsPayment} error={errors.payment_amount}>
+          <Input id="w-payment_amount" inputMode="decimal" value={v.payment_amount} onChange={set('payment_amount')} invalid={!!errors.payment_amount} />
+        </Field>
+        <Field label={L.payment_source} htmlFor="w-payment_source" required={needsPayment} error={errors.payment_source}>
+          <Select id="w-payment_source" placeholder="Select" value={v.payment_source} onChange={set('payment_source')} options={toOptions(active.payment_sources)} invalid={!!errors.payment_source} />
+        </Field>
+        <Field label={L.payment_type} htmlFor="w-payment_type" required={needsPayment} error={errors.payment_type}>
+          <Select id="w-payment_type" placeholder="Select" value={v.payment_type} onChange={set('payment_type')} options={toOptions(active.payment_types)} invalid={!!errors.payment_type} />
+        </Field>
+        <Field label={L.payment_status} htmlFor="w-payment_status" required={needsPayment} error={errors.payment_status}>
+          <Select id="w-payment_status" placeholder="Select" value={v.payment_status} onChange={set('payment_status')} options={toOptions(active.payment_statuses)} invalid={!!errors.payment_status} />
+        </Field>
+      </div>
 
       <div className="no-print flex flex-wrap gap-2">
         {ticket.status !== 'Closed' && (

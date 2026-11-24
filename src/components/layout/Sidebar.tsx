@@ -5,7 +5,7 @@ import { ROLE_LABEL } from '@/lib/constants';
 import { cn } from '@/utils/cn';
 import { Avatar } from '@/components/ui';
 import { Logo } from './Logo';
-import { NAV_ITEMS } from './nav';
+import { NAV_ITEMS, navVisible } from './nav';
 
 export function Sidebar({
   collapsed,
@@ -19,9 +19,7 @@ export function Sidebar({
   onCloseMobile: () => void;
 }) {
   const { can, officerId, profile, role } = useAuth();
-  const items = NAV_ITEMS.filter((i) =>
-    i.officerOnly ? Boolean(officerId) || role === 'dm_officer' : i.permission ? can(i.permission) : true,
-  );
+  const items = NAV_ITEMS.filter((i) => navVisible(i, { role, officerId, can }));
 
   const content = (isMobile: boolean) => {
     const narrow = collapsed && !isMobile;
@@ -43,9 +41,14 @@ export function Sidebar({
           )}
         </div>
         <nav aria-label="Main" className="scrollbar-thin flex-1 space-y-0.5 overflow-y-auto px-2.5 py-4">
-          {items.map((item) => (
+          {items.map((item, index) => (
+            <div key={item.to}>
+              {!narrow && item.section && item.section !== items[index - 1]?.section && (
+                <p className="px-2.5 pt-4 pb-1 text-[10px] font-semibold tracking-wider text-brand-200/50 uppercase">
+                  {item.section}
+                </p>
+              )}
             <NavLink
-              key={item.to}
               to={item.to}
               end={item.to === '/tickets'}
               onClick={isMobile ? onCloseMobile : undefined}
@@ -73,6 +76,7 @@ export function Sidebar({
                 </>
               )}
             </NavLink>
+            </div>
           ))}
         </nav>
         {profile && (

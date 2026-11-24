@@ -54,6 +54,7 @@ function headerMap(): Record<string, ImportField> {
   map[norm('OFFICER')] = 'officer_name';
   map[norm('PAYMENT')] = 'payment_amount';
   map[norm('ID')] = 'client_id';
+  map[norm('CUSTOMER ID')] = 'client_id';
   return map;
 }
 
@@ -109,7 +110,7 @@ function validateRow(
   };
 
   const client_name = need('client_name');
-  const client_id = need('client_id');
+  const client_id = g('client_id'); // CUSTOMER ID is optional
   const phone = fixPhone(need('contact_number'));
   if (phone && !isValidGhanaPhone(phone)) errors.push('CONTACT NUMBER is not a valid Ghana number');
   const community = need('community');
@@ -176,7 +177,7 @@ function validateRow(
     preview,
     data: {
       client_name,
-      client_id,
+      client_id: client_id || null,
       contact_number: toLocalPhone(phone),
       contact_type: contact_type!,
       community,
@@ -278,7 +279,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
         ['Low', 'Medium', 'High', 'Urgent'][i] ?? '',
       ]),
     ];
-    downloadTemplate('dm-crm-ticket-import-template.xlsx', head, example, notes);
+    downloadTemplate('zoomlion-crm-ticket-import-template.xlsx', head, example, notes);
   };
 
   return (

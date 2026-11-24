@@ -15,6 +15,20 @@ const ICON_TONE: Record<StatTone, string> = {
   violet: 'bg-violet-50 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300',
 };
 
+/**
+ * A card is narrow and "GH₵ 1,234,567.00" is not. Rather than clip the
+ * figure, drop a size for every few extra characters so the whole number
+ * is always readable.
+ */
+function valueSize(value: ReactNode): string {
+  if (typeof value !== 'string' && typeof value !== 'number') return 'text-2xl';
+  const n = String(value).length;
+  if (n <= 7) return 'text-2xl';
+  if (n <= 11) return 'text-xl';
+  if (n <= 15) return 'text-lg';
+  return 'text-base';
+}
+
 export interface StatCardProps {
   label: string;
   value: ReactNode;
@@ -47,15 +61,22 @@ export function StatCard({ label, value, icon, tone = 'brand', hint, loading, on
         </span>
       )}
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-xs font-medium text-slate-500 dark:text-slate-400">{label}</span>
+        <span className="block text-xs font-medium text-slate-500 dark:text-slate-400">{label}</span>
         {loading ? (
           <Skeleton className="mt-1.5 h-7 w-20" />
         ) : (
-          <span className="mt-0.5 block truncate text-2xl font-bold tracking-tight text-slate-900 tabular-nums dark:text-white">
+          <span
+            title={typeof value === 'string' || typeof value === 'number' ? String(value) : undefined}
+            className={cn(
+              /* Money runs long — step the size down rather than clip it */
+              'mt-0.5 block font-bold tracking-tight break-words text-slate-900 tabular-nums dark:text-white',
+              valueSize(value),
+            )}
+          >
             {value}
           </span>
         )}
-        {hint && !loading && <span className="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400">{hint}</span>}
+        {hint && !loading && <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">{hint}</span>}
       </span>
     </Comp>
   );

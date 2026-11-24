@@ -82,8 +82,13 @@ function TicketCard({ t, onOpen }: { t: TicketRow; onOpen: () => void }) {
           <span className="text-sm text-slate-600 dark:text-slate-300">{formatPhone(t.contact_number)}</span>
         </div>
         <p className="flex items-center gap-1 text-xs text-slate-500">
-          <MapPin className="size-3" /> {t.community}, {t.region} · {t.contact_type}
+          <MapPin className="size-3" /> {t.community}, {t.district ?? t.region} · {t.contact_type}
         </p>
+        {t.forward_note && (
+          <p className="rounded-md bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
+            <span className="font-semibold">From the office:</span> {t.forward_note}
+          </p>
+        )}
         <p className="text-sm">
           <span className="font-semibold">{t.issue_type}</span>
           <span className="text-slate-600 dark:text-slate-400"> — {t.description}</span>
@@ -125,8 +130,16 @@ function TicketCard({ t, onOpen }: { t: TicketRow; onOpen: () => void }) {
   );
 }
 
-export default function MyTicketsPage() {
+/**
+ * The officer's own queue, on a phone.
+ *
+ * Two modes, because the shape of the work is the same either way:
+ *   mine  — tickets assigned to the officer who took the call
+ *   field — tickets forwarded down to this District Operation Officer
+ */
+export default function MyTicketsPage({ mode = 'mine' }: { mode?: 'mine' | 'field' }) {
   const { officerId, profile } = useAuth();
+  const isField = mode === 'field';
   const [tab, setTab] = useState<TabKey>('active');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(0);
@@ -135,8 +148,8 @@ export default function MyTicketsPage() {
   const filters = useMemo(() => filtersFor(tab, debounced), [tab, debounced]);
 
   const summary = useQuery({
-    queryKey: [...qk.myTickets, 'summary', officerId],
-    queryFn: () => officersService.summary(officerId),
+    queryKey: [...qk.myTickets, 'summary', mode, officerId],
+    queryFn: () => (isField ? officersService.fieldSummary(officerId) : officersService.summary(officerId)),
     enabled: Boolean(officerId),
   });
   const list = useTicketList(
@@ -144,10 +157,11 @@ export default function MyTicketsPage() {
       filters,
       page,
       pageSize: 20,
-      officerId,
+      officerId: isField ? null : officerId,
+      districtOfficerId: isField ? officerId : null,
       sort: tab === 'resolved' ? [{ id: 'completion_date', desc: true }] : [{ id: 'due_date', desc: false }, { id: 'priority', desc: true }],
     },
-    'mine',
+    isField ? 'field' : 'mine',
   );
 
   if (!officerId) {
@@ -155,7 +169,11 @@ export default function MyTicketsPage() {
       <EmptyState
         icon={<UserX />}
         title="Your account isn't linked to an officer yet"
-        description="An administrator needs to link your user to an officer record under Administration → Officers before tickets can be assigned to you."
+        description={
+          isField
+            ? 'An administrator needs to link your user to a District Operation Officer record under Administration → District officers before work can be forwarded to you.'
+            : 'An administrator needs to link your user to an officer record under Administration → Officers before tickets can be assigned to you.'
+        }
       />
     );
   }
@@ -168,7 +186,7 @@ export default function MyTicketsPage() {
   return (
     <>
       <PageHeader
-        eyebrow="My work"
+        eyebrow={isField ? 'Field work' : 'My work'}
         title={`${greeting}, ${firstName}`}
         description={
           s
@@ -182,7 +200,7 @@ export default function MyTicketsPage() {
       />
 
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <StatCard label="Total assigned" value={s?.assigned ?? 0} icon={<ListTodo />} loading={summary.isLoading} tone="gray" />
+        <StatCard label={isField ? 'Forwarded to me' : 'Total assigned'} value={s?.assigned ?? 0} icon={<ListTodo />} loading={summary.isLoading} tone="gray" />
         <StatCard label="Open" value={s?.open ?? 0} icon={<Inbox />} tone="blue" loading={summary.isLoading} onClick={() => { setTab('open'); setPage(0); }} active={tab === 'open'} />
         <StatCard label="In progress" value={s?.in_progress ?? 0} icon={<PlayCircle />} tone="amber" loading={summary.isLoading} onClick={() => { setTab('in_progress'); setPage(0); }} active={tab === 'in_progress'} />
         <StatCard label="Overdue" value={s?.overdue ?? 0} icon={<AlertTriangle />} tone="red" loading={summary.isLoading} onClick={() => { setTab('overdue'); setPage(0); }} active={tab === 'overdue'} />
@@ -233,7 +251,13 @@ export default function MyTicketsPage() {
             <EmptyState
               icon={tab === 'overdue' ? <CheckCircle2 /> : <Inbox />}
               title={debounced ? 'No matching tickets' : tab === 'overdue' ? 'No overdue tickets' : 'Nothing here'}
-              description={tab === 'active' && !debounced ? 'New assignments will appear here instantly.' : undefined}
+              description={
+                tab === 'active' && !debounced
+                  ? isField
+                    ? 'Work forwarded to you will appear here instantly.'
+                    : 'New assignments will appear here instantly.'
+                  : undefined
+              }
             />
           ) : (
             <ul className="grid gap-3 lg:grid-cols-2">
