@@ -876,6 +876,8 @@ export interface AiSuggestion {
 export interface CombinedTotals {
   /** every ticket, however the client made contact */
   ticket_total: number;
+  /** tickets that did not arrive as a call either way: walk-in, WhatsApp, text */
+  ticket_other_contact: number;
   /** tickets whose issue type is a phone change request */
   ticket_phone_change: number;
   /**

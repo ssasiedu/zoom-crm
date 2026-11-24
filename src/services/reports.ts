@@ -66,7 +66,7 @@ const groupRow = (r: TurnaroundGroupRow): TurnaroundGroupRow => ({
 });
 
 const COMBINED_KEYS: (keyof CombinedTotals)[] = [
-  'ticket_total', 'ticket_phone_change', 'call_activity_total',
+  'ticket_total', 'ticket_other_contact', 'ticket_phone_change', 'call_activity_total',
   'ticket_outbound_calls', 'ticket_inbound_calls', 'ticket_calls', 'debtor_calls',
   'debtor_customers_called', 'inbound_calls_total', 'outbound_calls_total',
   'calls_total', 'ticket_payments', 'ticket_payment_count', 'debtor_collected',

@@ -25,6 +25,7 @@ import {
   FolderOpen,
   HandCoins,
   Headphones,
+  MessagesSquare,
   Inbox,
   Lock,
   Percent,
@@ -194,11 +195,12 @@ function soleMatch(names: string[], test: (upper: string) => boolean): string | 
 /**
  * Total call activity and what it was made of.
  *
- * The four figures do not add up to the total, and saying so on the card
- * is cheaper than someone adding them up and filing a bug: in-bound and
- * outbound describe how a client made contact, while a phone change
- * request is an issue type, so those tickets are already counted in one
- * of the two. Walk-ins, WhatsApp and text make up the rest of the total.
+ * Four figures account for the total exactly — in-bound, outbound, every
+ * other way a ticket arrived, and the debtor calls. Phone change
+ * requests sit outside that sum and say so on the card: it is an issue
+ * type rather than a channel, so those tickets are already counted under
+ * one of the three ticket figures. Showing it without that line would
+ * invite someone to add five numbers and find them 8 over.
  */
 function CallActivity({
   combined,
@@ -217,11 +219,20 @@ function CallActivity({
     active.issue_types.map((i) => i.name),
     (u) => u.includes('PHONE') && (u.includes('CHANGE') || u.includes('NUMBER') || u.includes('UPDATE')),
   );
+  /* Name the channels in the "other" bucket rather than hard-coding
+     walk-in, WhatsApp and text — these are values an admin can add to. */
+  const otherChannels = contacts.filter((c) => !c.toUpperCase().includes('CALL'));
+  const otherHint =
+    otherChannels.length === 0
+      ? 'Tickets that did not arrive as a call'
+      : otherChannels.length <= 3
+        ? otherChannels.join(', ').toLowerCase()
+        : `${otherChannels.slice(0, 2).join(', ').toLowerCase()} and ${otherChannels.length - 2} more`;
 
   return (
     <section aria-label="Call activity" className="mb-5">
       <h2 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">Call activity</h2>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <StatCard
           label="Total call activity"
           value={formatNumber(combined?.call_activity_total)}
@@ -251,6 +262,14 @@ function CallActivity({
           loading={loading}
           hint="Calls the team made on a ticket"
           onClick={outbound ? () => onDrill({ contact_type: outbound }) : undefined}
+        />
+        <StatCard
+          label="Other contact types"
+          value={formatNumber(combined?.ticket_other_contact)}
+          icon={<MessagesSquare />}
+          tone="gray"
+          loading={loading}
+          hint={otherHint}
         />
         <StatCard
           label="Debtor calls"
