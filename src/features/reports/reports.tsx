@@ -12,6 +12,7 @@ import { errorMessage } from '@/services/errors';
 import { reportsService } from '@/services/reports';
 import type {
   DebtorMoneyByRegionRow,
+  IssueByOfficerRow,
   IssueByRegionRow,
   OfficerCombinedRow,
   OutboundByRegionRow,
@@ -25,7 +26,12 @@ import type {
 import type { ExportSheet } from '@/utils/export';
 import { formatGHS, formatHours, formatMinutes, formatNumber, formatPercent } from '@/utils/format';
 import { ticketsUrl } from '@/features/tickets/ticketFilters';
-import { ForwardedWork, loadForwardedSheets } from './ForwardedWork';
+import {
+  DistrictOfficerPerformance,
+  ForwardedWork,
+  loadDistrictOfficerSheets,
+  loadForwardedSheets,
+} from './ForwardedWork';
 import { heat, ReportTable, sum, type ReportColumn } from './ReportTable';
 
 export interface ReportProps {
@@ -573,6 +579,88 @@ function SlaAging({ filters, ticketParams }: ReportProps) {
 }
 
 /* ------------------------------------------------------------------ */
+/* 7b. Issue type per officer                                          */
+/* ------------------------------------------------------------------ */
+/**
+ * The same grid as issue type per region, with the officer in place of
+ * the region: not how much each person did, but what kind of work they
+ * handled. Officers with nothing in the period are left out.
+ */
+export function pivotIssuesByOfficer(rows: IssueByOfficerRow[], issueOrder: string[]) {
+  const issues = [
+    ...new Set([
+      ...issueOrder.filter((i) => rows.some((r) => r.issue_type === i)),
+      ...rows.map((r) => r.issue_type),
+    ]),
+  ];
+  const byOfficer = new Map<string, { officer: string; region: string | null }>();
+  for (const r of rows) byOfficer.set(r.officer_name, { officer: r.officer_name, region: r.region });
+  const cell = new Map(rows.map((r) => [`${r.officer_name}|${r.issue_type}`, r.count]));
+  const table = [...byOfficer.values()]
+    .map(({ officer, region }) => {
+      const counts = Object.fromEntries(issues.map((i) => [i, cell.get(`${officer}|${i}`) ?? 0]));
+      return { officer, region, counts, total: Object.values(counts).reduce((a, b) => a + b, 0) };
+    })
+    .filter((r) => r.total > 0)
+    .sort((a, b) => b.total - a.total || a.officer.localeCompare(b.officer));
+  return { issues, table, max: Math.max(0, ...rows.map((r) => r.count)) };
+}
+
+function IssueByOfficer({ filters, ticketParams }: ReportProps) {
+  const navigate = useNavigate();
+  const { lookups } = useLookups();
+  const q = useReport('issue-officer', filters, reportsService.issueTypeByOfficer);
+  const { issues, table, max } = useMemo(
+    () => pivotIssuesByOfficer(q.data ?? [], lookups.issue_types.map((i) => i.name)),
+    [q.data, lookups],
+  );
+  type Row = (typeof table)[number];
+  const columns: ReportColumn<Row>[] = [
+    {
+      key: 'officer',
+      header: 'Officer',
+      render: (r) => (
+        <span>
+          <span className="font-medium">{r.officer}</span>
+          {r.region && <span className="block text-xs text-slate-500">{r.region}</span>}
+        </span>
+      ),
+      footer: 'Total',
+    },
+    ...issues.map<ReportColumn<Row>>((i) => ({
+      key: i,
+      header: i,
+      align: 'right',
+      render: (r) =>
+        r.counts[i] ? (
+          <span className={`-mx-2 -my-1 rounded px-2 py-1 ${heat(r.counts[i], max) ?? ''}`}>{r.counts[i]}</span>
+        ) : (
+          <span className="text-slate-300 dark:text-slate-600">0</span>
+        ),
+      footer: formatNumber(sum(table, (r) => r.counts[i])),
+    })),
+    { key: 'total', header: 'Total', align: 'right', render: (r) => <strong>{r.total}</strong>, footer: formatNumber(sum(table, (r) => r.total)) },
+  ];
+  return (
+    <Frame loading={q.isLoading} error={q.error} retry={() => q.refetch()} empty={table.length === 0}>
+      <Card>
+        <CardHeader title="Issue type per officer" description="What kind of work each officer handled. Click an officer to see their tickets." />
+        <ReportTable
+          caption="Issue type per officer"
+          columns={columns}
+          rows={table}
+          rowKey={(r) => r.officer}
+          onRowClick={(r) => {
+            const id = (q.data ?? []).find((x) => x.officer_name === r.officer)?.officer_id;
+            navigate(ticketsUrl({ ...ticketParams, officer: id ?? 'unassigned' }));
+          }}
+        />
+      </Card>
+    </Frame>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /* 8. Outbound calls per region                                        */
 /* ------------------------------------------------------------------ */
 export const OUTBOUND_REGION_COLUMNS = (rows: OutboundByRegionRow[]): ReportColumn<OutboundByRegionRow>[] => [
@@ -853,6 +941,20 @@ function officerSheet(rows: OfficerCombinedRow[]): ExportSheet {
 
 async function loadOfficerSheets(f: ReportFilters): Promise<ExportSheet[]> {
   return [officerSheet(await reportsService.officerPerformanceCombined(f))];
+}
+
+function issueOfficerSheet(rows: IssueByOfficerRow[], issueOrder: string[] = []): ExportSheet {
+  const { issues, table } = pivotIssuesByOfficer(rows, issueOrder);
+  return {
+    name: 'Issue type per officer',
+    head: ['Officer', 'Region', ...issues, 'Total'],
+    rows: table.map((r) => [r.officer, r.region ?? '', ...issues.map((i) => r.counts[i]), r.total]),
+    foot: ['TOTAL', '', ...issues.map((i) => sum(table, (r) => r.counts[i])), sum(table, (r) => r.total)],
+  };
+}
+
+async function loadIssueOfficerSheets(f: ReportFilters): Promise<ExportSheet[]> {
+  return [issueOfficerSheet(await reportsService.issueTypeByOfficer(f))];
 }
 
 function outboundSheet(rows: OutboundByRegionRow[]): ExportSheet {
@@ -1297,6 +1399,13 @@ export const REPORTS: ReportDefinition[] = [
     Component: IssueByRegion,
   },
   {
+    key: 'issue-officer',
+    title: 'Issue type per officer',
+    description: 'What kind of work each officer handled, not just how much',
+    load: loadIssueOfficerSheets,
+    Component: IssueByOfficer,
+  },
+  {
     key: 'payments-region',
     title: 'Payments per region',
     description: 'Amounts by payment type, source and status',
@@ -1353,6 +1462,13 @@ export const REPORTS: ReportDefinition[] = [
     Component: ({ filters, ticketParams }) => <ForwardedWork filters={filters} ticketParams={ticketParams} />,
   },
   {
+    key: 'district-officers',
+    title: 'District officer performance',
+    description: 'How each District Operation Officer is doing on the tickets forwarded to them',
+    load: loadDistrictOfficerSheets,
+    Component: ({ filters }) => <DistrictOfficerPerformance filters={filters} />,
+  },
+  {
     key: 'sla-aging',
     title: 'SLA & overdue ageing',
     description: 'Overdue tickets bucketed 0–2, 3–7, 8–14 and 15+ days',
@@ -1369,6 +1485,8 @@ export {
   paymentStatusSheets,
   pivotPaymentStatus,
   pivotIssues,
+  issueOfficerSheet,
+  loadIssueOfficerSheets,
   debtorCallMap,
   contactTypesPresent,
   loadIssueSheets,

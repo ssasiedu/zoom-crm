@@ -35,17 +35,20 @@ import {
   officerSheet,
   outboundSheet,
   paymentStatusSheets,
+  issueOfficerSheet,
   pivotIssues,
+  pivotIssuesByOfficer,
   pivotPaymentStatus,
   statusSheet,
   DEBTOR_MONEY_COLUMNS,
   OUTBOUND_REGION_COLUMNS,
 } from './reports';
-import { ForwardedWorkTables, forwardedSheets } from './ForwardedWork';
+import { districtOfficerSheet, ForwardedWorkTables, forwardedSheets } from './ForwardedWork';
 import { toPdfSheets } from './pdfSheets';
 
 async function loadMonthly(f: ReportFilters) {
-  const [kpis, combined, regions, contact, issues, outbound, paymentStatus, debtorMoney, officers, forwarded] = await Promise.all([
+  const [kpis, combined, regions, contact, issues, outbound, paymentStatus, debtorMoney, officers, forwarded, issueOfficer] =
+    await Promise.all([
     reportsService.kpis(f),
     reportsService.combined(f),
     reportsService.statusByRegion(f),
@@ -56,8 +59,15 @@ async function loadMonthly(f: ReportFilters) {
     reportsService.debtorMoneyByRegion(f),
     reportsService.officerPerformanceCombined(f),
     reportsService.forwarded(f),
+    reportsService.issueTypeByOfficer(f),
   ]);
-  return { kpis, combined, regions, contact, issues, outbound, paymentStatus, debtorMoney, officers, forwarded };
+  /* A monthly report that lists every officer on the books, most of them
+     all zeros, buries the people who actually worked. Only those with
+     something to show make it in. */
+  return {
+    kpis, combined, regions, contact, issues, outbound, paymentStatus, debtorMoney, forwarded, issueOfficer,
+    officers: officers.filter((o) => o.total_calls > 0 || o.total_assigned > 0 || o.total_received > 0),
+  };
 }
 
 type MonthlyData = Awaited<ReturnType<typeof loadMonthly>>;
@@ -140,7 +150,10 @@ export function MonthlyReport({ baseFilters }: { baseFilters: ReportFilters }) {
       withChart(debtorMoneySheet(d.debtorMoney), debtorMoneyChart(d.debtorMoney)),
       ...payments.slice(0, 1),
       withChart(officerSheet(d.officers), officerCallsChart(d.officers)),
-      ...(forwarded.length > 0 ? [withChart(forwarded[0], forwardedChart(d.forwarded)), ...forwarded.slice(1)] : []),
+      issueOfficerSheet(d.issueOfficer, lookups.issue_types.map((i) => i.name)),
+      ...(forwarded.length > 0
+        ? [withChart(forwarded[0], forwardedChart(d.forwarded)), ...forwarded.slice(1), districtOfficerSheet(d.forwarded)]
+        : []),
       ...sla.slice(0, 1),
     ];
     return { sheets, kpis: monthlyKpis(d), charts: monthlyOverviewCharts(d) };
@@ -230,6 +243,7 @@ function MonthlySections({
     [d.issues, d.outbound, issueOrder, regionOrder],
   );
   const payments = useMemo(() => pivotPaymentStatus(d.paymentStatus, statusOrder), [d.paymentStatus, statusOrder]);
+  const issueOfficer = useMemo(() => pivotIssuesByOfficer(d.issueOfficer, issueOrder), [d.issueOfficer, issueOrder]);
   const outbound = d.outbound.filter((r) => r.total_outbound > 0);
   const debtorMoney = d.debtorMoney.filter((r) => r.calls > 0 || r.collected > 0);
   const officerContactTypes = contactTypesPresent(d.officers, contactOrder);
@@ -376,6 +390,46 @@ function MonthlySections({
         />
       </Card>
 
+      <Card>
+        <CardHeader
+          title="Issue type per officer"
+          description="What kind of work each officer handled this month, not just how much."
+        />
+        <ReportTable
+          caption="Issue type per officer"
+          rows={issueOfficer.table}
+          rowKey={(r) => r.officer}
+          columns={[
+            {
+              key: 'officer',
+              header: 'Officer',
+              render: (r) => (
+                <span>
+                  <span className="font-medium">{r.officer}</span>
+                  {r.region && <span className="block text-xs text-slate-500">{r.region}</span>}
+                </span>
+              ),
+              footer: 'Total',
+            },
+            ...issueOfficer.issues.map((i) => ({
+              key: i,
+              header: i,
+              align: 'right' as const,
+              render: (r: (typeof issueOfficer.table)[number]) =>
+                r.counts[i] || <span className="text-slate-300 dark:text-slate-600">0</span>,
+              footer: formatNumber(sum(issueOfficer.table, (r) => r.counts[i])),
+            })),
+            {
+              key: 'total',
+              header: 'Total',
+              align: 'right' as const,
+              render: (r: (typeof issueOfficer.table)[number]) => <strong>{r.total}</strong>,
+              footer: formatNumber(sum(issueOfficer.table, (r) => r.total)),
+            },
+          ]}
+        />
+      </Card>
+
       {d.forwarded.totals.total > 0 && (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -385,6 +439,36 @@ function MonthlySections({
             <StatCard label="Overdue in the field" value={formatNumber(d.forwarded.totals.overdue)} tone="red" />
           </div>
           <ForwardedWorkTables d={d.forwarded} />
+          <Card>
+            <CardHeader
+              title="District Operation Officer performance"
+              description="On time counts the forwarded tickets they finished by the due date."
+            />
+            <ReportTable
+              caption="District officer performance"
+              rows={[...d.forwarded.by_officer].sort((a, b) => b.total - a.total)}
+              rowKey={(r) => `${r.district}|${r.officer_name}`}
+              columns={[
+                {
+                  key: 'officer',
+                  header: 'Officer',
+                  render: (r) => (
+                    <span>
+                      <span className="font-medium">{r.officer_name}</span>
+                      <span className="block text-xs text-slate-500">{r.district}</span>
+                    </span>
+                  ),
+                },
+                { key: 'total', header: 'Forwarded', align: 'right' as const, render: (r) => r.total },
+                { key: 'resolved', header: 'Finished', align: 'right' as const, render: (r) => r.resolved + r.closed },
+                { key: 'overdue', header: 'Overdue', align: 'right' as const, render: (r) => r.overdue },
+                { key: 'rate', header: 'Done %', align: 'right' as const, render: (r) => formatPercent(r.resolution_rate) },
+                { key: 'ontime', header: 'On time', align: 'right' as const, render: (r) => r.sla_met },
+                { key: 'ontimerate', header: 'On time %', align: 'right' as const, render: (r) => formatPercent(r.sla_rate) },
+                { key: 'field', header: 'Avg. field time', align: 'right' as const, render: (r) => formatHours(r.avg_field_hours) },
+              ]}
+            />
+          </Card>
         </>
       )}
     </>

@@ -177,6 +177,156 @@ export function ForwardedWork({ filters, ticketParams }: { filters: ReportFilter
   );
 }
 
+/**
+ * District Operation Officers judged on the work forwarded to them.
+ *
+ * Separate from the forwarded-work report, which answers "where is the
+ * field work": this answers "how is each officer doing with it". Done %
+ * is how much they finished; on-time % is how much of that they
+ * finished by the due date, which is the part a resolution rate alone
+ * hides — an officer who closes everything a week late reads as a good
+ * month until you look at this column.
+ */
+export function DistrictOfficerPerformance({ filters }: { filters: ReportFilters }) {
+  const theme = useChartTheme();
+  const q = useQuery({
+    queryKey: [...qk.reports, 'forwarded', filters],
+    queryFn: () => reportsService.forwarded(filters),
+  });
+
+  if (q.isLoading) {
+    return (
+      <Card>
+        <TableSkeleton rows={8} cols={8} />
+      </Card>
+    );
+  }
+  if (q.error) {
+    return (
+      <Card>
+        <ErrorState message={errorMessage(q.error)} onRetry={() => q.refetch()} />
+      </Card>
+    );
+  }
+  const d = q.data;
+  if (!d || d.by_officer.length === 0) {
+    return (
+      <Card>
+        <EmptyState
+          title="No forwarded work in this period"
+          description="District Operation Officers appear here once tickets are forwarded to them."
+        />
+      </Card>
+    );
+  }
+
+  const rows = [...d.by_officer].sort((a, b) => b.total - a.total);
+  const finished = d.totals.resolved + d.totals.closed;
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <StatCard label="Officers working" value={formatNumber(d.totals.officers)} />
+        <StatCard label="Tickets forwarded" value={formatNumber(d.totals.total)} tone="violet" />
+        <StatCard
+          label="Finished"
+          value={formatNumber(finished)}
+          tone="green"
+          hint={`${formatPercent((100 * finished) / Math.max(1, d.totals.total))} of what was forwarded`}
+        />
+        <StatCard
+          label="Finished on time"
+          value={formatNumber(d.totals.sla_met)}
+          tone={d.totals.sla_met < finished / 2 ? 'red' : 'brand'}
+          hint={`${formatPercent((100 * d.totals.sla_met) / Math.max(1, finished))} of those finished`}
+        />
+      </div>
+
+      <ChartCard title="Forwarded, finished and on time, per officer" height={340}>
+        <ResponsiveContainer>
+          <BarChart data={rows} margin={{ top: 5, right: 10, left: -15, bottom: 70 }}>
+            <CartesianGrid stroke={theme.grid} vertical={false} />
+            <XAxis dataKey="officer_name" tick={theme.tick} angle={-40} textAnchor="end" interval={0} axisLine={false} tickLine={false} />
+            <YAxis allowDecimals={false} tick={theme.tick} axisLine={false} tickLine={false} />
+            <Tooltip content={<ChartTooltip />} cursor={{ fill: theme.cursor }} />
+            <Legend iconType="circle" verticalAlign="top" wrapperStyle={{ fontSize: 11 }} />
+            <Bar dataKey="total" name="Forwarded" fill={STATUS_COLORS.Open} radius={[4, 4, 0, 0]} />
+            <Bar dataKey="resolved" name="Resolved" fill={STATUS_COLORS.Resolved} radius={[4, 4, 0, 0]} />
+            <Bar dataKey="sla_met" name="On time" fill={STATUS_COLORS.Closed} radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartCard>
+
+      <Card>
+        <CardHeader
+          title="District Operation Officer performance"
+          description="Field time runs from the moment the ticket was forwarded. On-time counts those finished by the due date."
+        />
+        <ReportTable<ForwardedOfficerRow>
+          caption="District officer performance"
+          rows={rows}
+          rowKey={(r) => `${r.district}|${r.officer_name}`}
+          columns={[
+            {
+              key: 'officer',
+              header: 'Officer',
+              render: (r) => (
+                <span>
+                  <span className="font-medium">{r.officer_name}</span>
+                  <span className="block text-xs text-slate-500">
+                    {r.district}
+                    {r.manager_name ? ` · ${r.manager_name}` : ''}
+                  </span>
+                </span>
+              ),
+              footer: 'Total',
+            },
+            ...statusColumns(rows),
+            {
+              key: 'ontime',
+              header: 'On time',
+              align: 'right',
+              render: (r) => formatNumber(r.sla_met),
+              footer: formatNumber(sum(rows, (r) => r.sla_met)),
+            },
+            {
+              key: 'ontimerate',
+              header: 'On time %',
+              align: 'right',
+              render: (r) => (
+                <span className={r.sla_rate < 50 ? 'font-semibold text-rose-600' : undefined}>{formatPercent(r.sla_rate)}</span>
+              ),
+            },
+            { key: 'field', header: 'Avg. field time', align: 'right', render: (r) => formatHours(r.avg_field_hours) },
+          ]}
+        />
+      </Card>
+    </div>
+  );
+}
+
+export function districtOfficerSheet(d: ForwardedReport): ExportSheet {
+  const rows = [...d.by_officer].sort((a, b) => b.total - a.total);
+  return {
+    name: 'District officer performance',
+    head: ['Officer', 'District', 'Region', 'Regional manager', 'Forwarded', 'Open', 'In progress', 'Resolved', 'Closed', 'Overdue', 'Done %', 'On time', 'On time %', 'Avg field time (h)'],
+    rows: rows.map((r) => [
+      r.officer_name, r.district, r.region, r.manager_name,
+      r.total, r.open, r.in_progress, r.resolved, r.closed, r.overdue,
+      r.resolution_rate, r.sla_met, r.sla_rate, r.avg_field_hours ?? '',
+    ]),
+    foot: [
+      'TOTAL', '', '', '',
+      sum(rows, (r) => r.total), sum(rows, (r) => r.open), sum(rows, (r) => r.in_progress),
+      sum(rows, (r) => r.resolved), sum(rows, (r) => r.closed), sum(rows, (r) => r.overdue),
+      '', sum(rows, (r) => r.sla_met), '', '',
+    ],
+  };
+}
+
+export async function loadDistrictOfficerSheets(f: ReportFilters): Promise<ExportSheet[]> {
+  return [districtOfficerSheet(await reportsService.forwarded(f))];
+}
+
 /** Export sheets, shared by the report page and the monthly report */
 export function forwardedSheets(d: ForwardedReport): ExportSheet[] {
   const counts = (r: { total: number; open: number; in_progress: number; resolved: number; closed: number; overdue: number }) =>

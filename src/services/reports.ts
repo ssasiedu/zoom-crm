@@ -8,6 +8,7 @@ import type {
   StaffWorkloadTrendRow,
   DebtorMoneyByRegionRow,
   ForwardedReport,
+  IssueByOfficerRow,
   IssueByRegionRow,
   Kpis,
   OfficerCombinedRow,
@@ -65,6 +66,7 @@ const groupRow = (r: TurnaroundGroupRow): TurnaroundGroupRow => ({
 });
 
 const COMBINED_KEYS: (keyof CombinedTotals)[] = [
+  'ticket_total', 'ticket_phone_change', 'call_activity_total',
   'ticket_outbound_calls', 'ticket_inbound_calls', 'ticket_calls', 'debtor_calls',
   'debtor_customers_called', 'inbound_calls_total', 'outbound_calls_total',
   'calls_total', 'ticket_payments', 'ticket_payment_count', 'debtor_collected',
@@ -264,17 +266,26 @@ export const reportsService = {
   /** Work forwarded to the districts, by region, district, officer and status */
   async forwarded(f: ReportFilters): Promise<ForwardedReport> {
     const d = await rpc<ForwardedReport>('report_forwarded_tickets', params(f));
-    const counts = ['total', 'open', 'in_progress', 'resolved', 'closed', 'overdue'] as const;
+    const counts = ['total', 'open', 'in_progress', 'resolved', 'closed', 'overdue', 'sla_met'] as const;
+    const emptyTotals = {
+      total: 0, open: 0, in_progress: 0, resolved: 0, closed: 0,
+      overdue: 0, sla_met: 0, districts: 0, officers: 0,
+    };
     return {
-      totals: num(d?.totals ?? { total: 0, open: 0, in_progress: 0, resolved: 0, closed: 0, overdue: 0, districts: 0, officers: 0 },
-        [...counts, 'districts', 'officers']),
+      totals: num(d?.totals ?? emptyTotals, [...counts, 'districts', 'officers']),
       by_officer: (d?.by_officer ?? []).map((r) => ({
-        ...num(r, [...counts, 'resolution_rate']),
+        ...num(r, [...counts, 'resolution_rate', 'sla_rate']),
         avg_field_hours: r.avg_field_hours === null || r.avg_field_hours === undefined ? null : toNumber(r.avg_field_hours),
       })),
       by_district: (d?.by_district ?? []).map((r) => num(r, [...counts, 'officers', 'resolution_rate'])),
       by_region: (d?.by_region ?? []).map((r) => num(r, [...counts, 'districts', 'officers', 'resolution_rate'])),
     };
+  },
+
+  /** Issue type per officer: what kind of work each person handles */
+  async issueTypeByOfficer(f: ReportFilters): Promise<IssueByOfficerRow[]> {
+    const rows = (await rpc<IssueByOfficerRow[]>('report_issue_type_by_officer', params(f))) ?? [];
+    return rows.map((r) => num(r, ['count']));
   },
 
   /** Turnaround (raised → resolved) and waiting time (raised → first worked on) */

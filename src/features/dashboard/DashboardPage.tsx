@@ -23,13 +23,15 @@ import {
   CheckCircle2,
   Clock,
   FolderOpen,
+  HandCoins,
+  Headphones,
   Inbox,
   Lock,
-  HandCoins,
   Percent,
   PhoneCall,
   PhoneIncoming,
   PlayCircle,
+  Smartphone,
   RefreshCw,
   Timer,
   UserX,
@@ -56,7 +58,8 @@ import { CHART_PALETTE, STATUS_COLORS } from '@/lib/constants';
 import { qk } from '@/lib/queryClient';
 import { errorMessage } from '@/services/errors';
 import { reportsService } from '@/services/reports';
-import type { DebtorLine, DebtorLineKind, PaymentLine, TicketStatus } from '@/types';
+import { useLookups } from '@/hooks/useLookups';
+import type { CombinedTotals, DebtorLine, DebtorLineKind, PaymentLine, TicketStatus } from '@/types';
 import { rangeLabel } from '@/utils/dateRange';
 import { formatDate, formatGHS, formatHours, formatMinutes, formatNumber, formatPercent, formatRelative } from '@/utils/format';
 import { useDebtorSummary } from '@/hooks/useDebtors';
@@ -177,6 +180,100 @@ const PAYMENT_LINE_COLUMNS: SheetColumn<PaymentLine>[] = [
   { key: 'detail', header: 'Details', render: (r) => r.detail ?? '', value: (r) => r.detail ?? '' },
 ];
 
+/**
+ * Which lookup value stands for a direction of call, and which for a
+ * phone change request. These are renameable values, so match the same
+ * loose way the database does rather than on an exact spelling — and
+ * only offer a drill-down when the match is unambiguous.
+ */
+function soleMatch(names: string[], test: (upper: string) => boolean): string | undefined {
+  const hits = names.filter((n) => test(n.toUpperCase()));
+  return hits.length === 1 ? hits[0] : undefined;
+}
+
+/**
+ * Total call activity and what it was made of.
+ *
+ * The four figures do not add up to the total, and saying so on the card
+ * is cheaper than someone adding them up and filing a bug: in-bound and
+ * outbound describe how a client made contact, while a phone change
+ * request is an issue type, so those tickets are already counted in one
+ * of the two. Walk-ins, WhatsApp and text make up the rest of the total.
+ */
+function CallActivity({
+  combined,
+  loading,
+  onDrill,
+}: {
+  combined: CombinedTotals | undefined;
+  loading: boolean;
+  onDrill: (extra: Record<string, string | undefined>) => void;
+}) {
+  const { active } = useLookups();
+  const contacts = active.contact_types.map((c) => c.name);
+  const inbound = soleMatch(contacts, (u) => u.includes('CALL') && !u.includes('OUT'));
+  const outbound = soleMatch(contacts, (u) => u.includes('CALL') && u.includes('OUT'));
+  const phone = soleMatch(
+    active.issue_types.map((i) => i.name),
+    (u) => u.includes('PHONE') && (u.includes('CHANGE') || u.includes('NUMBER') || u.includes('UPDATE')),
+  );
+
+  return (
+    <section aria-label="Call activity" className="mb-5">
+      <h2 className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-200">Call activity</h2>
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        <StatCard
+          label="Total call activity"
+          value={formatNumber(combined?.call_activity_total)}
+          icon={<Headphones />}
+          tone="brand"
+          loading={loading}
+          hint={
+            combined
+              ? `${formatNumber(combined.ticket_total)} tickets · ${formatNumber(combined.debtor_calls)} debtor calls`
+              : undefined
+          }
+        />
+        <StatCard
+          label="In-bound (tickets)"
+          value={formatNumber(combined?.ticket_inbound_calls)}
+          icon={<PhoneIncoming />}
+          tone="violet"
+          loading={loading}
+          hint="Clients who called us"
+          onClick={inbound ? () => onDrill({ contact_type: inbound }) : undefined}
+        />
+        <StatCard
+          label="Outbound (tickets)"
+          value={formatNumber(combined?.ticket_outbound_calls)}
+          icon={<PhoneCall />}
+          tone="blue"
+          loading={loading}
+          hint="Calls the team made on a ticket"
+          onClick={outbound ? () => onDrill({ contact_type: outbound }) : undefined}
+        />
+        <StatCard
+          label="Debtor calls"
+          value={formatNumber(combined?.debtor_calls)}
+          icon={<HandCoins />}
+          tone="gold"
+          loading={loading}
+          hint={combined ? `${formatNumber(combined.debtor_customers_called)} customers reached` : undefined}
+        />
+        <StatCard
+          label="Phone change requests"
+          value={formatNumber(combined?.ticket_phone_change)}
+          icon={<Smartphone />}
+          tone="amber"
+          loading={loading}
+          hint="An issue type, so already counted above"
+          onClick={phone ? () => onDrill({ issue_type: phone }) : undefined}
+        />
+      </div>
+    </section>
+  );
+}
+
 export default function DashboardPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -237,26 +334,6 @@ export default function DashboardPage() {
         <StatCard label="Resolution rate" value={formatPercent(k?.resolution_rate)} icon={<Percent />} tone="brand" loading={d.kpis.isLoading} hint={`SLA met on ${formatPercent(k?.sla_compliance)} of resolved`} />
         <StatCard label="Avg. resolution time" value={formatHours(k?.avg_resolution_hours)} icon={<Clock />} tone="brand" loading={d.kpis.isLoading} hint="Opened → completed" />
         <StatCard
-          label="Inbound calls"
-          value={formatNumber(cb?.ticket_inbound_calls)}
-          icon={<PhoneIncoming />}
-          tone="violet"
-          loading={d.combined.isLoading}
-          hint="Calls that came in to the team"
-        />
-        <StatCard
-          label="Outbound calls"
-          value={formatNumber(cb?.outbound_calls_total)}
-          icon={<PhoneCall />}
-          tone="blue"
-          loading={d.combined.isLoading}
-          hint={
-            cb
-              ? `${formatNumber(cb.ticket_outbound_calls)} from tickets · ${formatNumber(cb.debtor_calls)} debtor calls`
-              : undefined
-          }
-        />
-        <StatCard
           label="Total received"
           value={formatGHS(cb?.payments_total ?? k?.total_payments)}
           icon={<Banknote />}
@@ -299,6 +376,8 @@ export default function DashboardPage() {
           hint="Raised → first worked on"
         />
       </section>
+
+      <CallActivity combined={cb} loading={d.combined.isLoading} onDrill={drill} />
 
       {can('debtors:view') && <CollectionsSnapshot />}
 

@@ -100,6 +100,8 @@ export interface ForwardedTotals {
   resolved: number;
   closed: number;
   overdue: number;
+  /** finished on or before the due date */
+  sla_met: number;
   districts: number;
   officers: number;
 }
@@ -115,8 +117,12 @@ export interface ForwardedOfficerRow {
   resolved: number;
   closed: number;
   overdue: number;
+  /** finished on or before the due date */
+  sla_met: number;
   avg_field_hours: number | null;
   resolution_rate: number;
+  /** of the ones finished, how many were on time */
+  sla_rate: number;
 }
 
 export interface ForwardedDistrictRow {
@@ -128,6 +134,7 @@ export interface ForwardedDistrictRow {
   resolved: number;
   closed: number;
   overdue: number;
+  sla_met: number;
   officers: number;
   resolution_rate: number;
 }
@@ -140,6 +147,7 @@ export interface ForwardedRegionRow {
   resolved: number;
   closed: number;
   overdue: number;
+  sla_met: number;
   districts: number;
   officers: number;
   resolution_rate: number;
@@ -476,6 +484,15 @@ export interface OfficerCombinedRow extends OfficerPerformanceRow {
   ticket_contacts: number;
   total_calls: number;
   total_received: number;
+}
+
+/** One officer's count for one issue type */
+export interface IssueByOfficerRow {
+  officer_id: string | null;
+  officer_name: string;
+  region: string | null;
+  issue_type: string;
+  count: number;
 }
 
 export interface AgingBuckets {
@@ -855,6 +872,16 @@ export interface AiSuggestion {
 
 /* ---------- Tickets and debtor calls together ---------- */
 export interface CombinedTotals {
+  /** every ticket, however the client made contact */
+  ticket_total: number;
+  /** tickets whose issue type is a phone change request */
+  ticket_phone_change: number;
+  /**
+   * Every ticket plus every debtor call. The figures beneath it do not
+   * partition it: a phone change request is an issue type, so it is
+   * already counted under in-bound or outbound.
+   */
+  call_activity_total: number;
   ticket_outbound_calls: number;
   ticket_inbound_calls: number;
   ticket_calls: number;

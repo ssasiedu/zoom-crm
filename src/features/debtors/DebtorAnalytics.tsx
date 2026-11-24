@@ -253,7 +253,6 @@ export function DebtorAnalytics({ filters, periodLabel }: { filters: DebtorFilte
           rowKey={(r) => r.officer_id}
           columns={[
             { key: 'officer', header: 'Officer', render: (r) => <span className="font-medium">{r.officer_name}</span>, footer: 'Total' },
-            { key: 'region', header: 'Region', render: (r) => r.region ?? '—' },
             { key: 'customers', header: 'Accounts', align: 'right', render: (r) => r.customers, footer: formatNumber(sum(officerRows, (r) => r.customers)) },
             { key: 'worked', header: 'Worked', align: 'right', render: (r) => r.worked, footer: formatNumber(sum(officerRows, (r) => r.worked)) },
             { key: 'pending', header: 'Pending', align: 'right', render: (r) => r.pending, footer: formatNumber(sum(officerRows, (r) => r.pending)) },
